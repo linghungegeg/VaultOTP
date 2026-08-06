@@ -1,0 +1,18 @@
+# External reference repositories.
+/references/
+
+# Local environment files.
+.env
+.env.*
+
+# Dependency and build output.
+node_modules/
+dist/
+build/
+coverage/
+
+# OS and editor files.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
