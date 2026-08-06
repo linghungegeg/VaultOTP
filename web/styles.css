@@ -298,8 +298,64 @@ textarea {
   flex-wrap: wrap;
 }
 
-.language {
-  width: 92px;
+.sidebar-actions {
+  align-items: stretch;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 12px;
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgb(15 23 42 / 45%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 20;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  padding: 18px;
+  width: min(860px, 100%);
+}
+
+.import-text {
+  min-height: 140px;
+}
+
+.import-preview {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  margin-top: 14px;
+  overflow: hidden;
+}
+
+.import-row {
+  align-items: center;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 24px minmax(160px, 1fr) auto auto auto minmax(120px, 1fr);
+  min-height: 54px;
+  padding: 10px 12px;
+}
+
+.import-row:last-child {
+  border-bottom: 0;
+}
+
+.import-row.duplicate,
+.import-row.invalid {
+  background: var(--panel-soft);
 }
 
 @media (max-width: 1120px) {
@@ -339,5 +395,10 @@ textarea {
 
   .otp {
     font-size: 22px;
+  }
+
+  .import-row {
+    align-items: flex-start;
+    grid-template-columns: 24px minmax(0, 1fr);
   }
 }

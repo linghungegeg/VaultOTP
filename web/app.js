@@ -51,6 +51,31 @@
     authSubtitle: "本地 Web 用户端 MVP",
     currentUser: "当前用户",
     localOnly: "本地 vault",
+    importEntries: "导入",
+    importTitle: "导入 2FA",
+    importSource: "导入内容",
+    importHint: "粘贴 otpauth URI、Google migration URI，或 Aegis / 2FAS / 2FAuth JSON。",
+    parseImport: "解析",
+    importSelected: "导入选中",
+    importAll: "导入全部",
+    close: "关闭",
+    preview: "预览",
+    status: "状态",
+    valid: "可导入",
+    duplicate: "重复",
+    invalid: "无效",
+    selected: "选中",
+    source: "来源",
+    importEmpty: "没有可预览的导入条目",
+    importRequired: "请先粘贴或选择导入内容",
+    importDone: "导入完成",
+    importNoSelection: "没有选中的可导入条目",
+    chooseFile: "选择文件",
+    importFileUnsupported: "无法读取文件内容",
+    reasonDuplicate: "已有相同条目",
+    reasonInvalidSecret: "Secret 无效",
+    reasonMissingFields: "缺少必要字段",
+    reasonUnsupported: "未识别的导入格式",
   };
 
   const state = {
@@ -65,6 +90,10 @@
     otpCodes: new Map(),
     copiedId: "",
     renderScheduled: false,
+    importOpen: false,
+    importText: "",
+    importItems: [],
+    importMessage: "",
   };
 
   const app = document.getElementById("app");
@@ -213,6 +242,334 @@
       bytes.push(parseInt(bits.slice(i, i + 8), 2));
     }
     return new Uint8Array(bytes);
+  }
+
+  function bytesToBase32(bytes) {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bits = "";
+    for (const byte of bytes) {
+      bits += byte.toString(2).padStart(8, "0");
+    }
+    let output = "";
+    for (let i = 0; i < bits.length; i += 5) {
+      const chunk = bits.slice(i, i + 5);
+      if (chunk.length < 5) {
+        output += alphabet[parseInt(chunk.padEnd(5, "0"), 2)];
+      } else {
+        output += alphabet[parseInt(chunk, 2)];
+      }
+    }
+    return output;
+  }
+
+  function normalizeAlgorithm(value) {
+    const normalized = String(value || "SHA-1").replace("-", "").toUpperCase();
+    if (normalized === "SHA1") return "SHA-1";
+    if (normalized === "SHA256") return "SHA-256";
+    if (normalized === "SHA512") return "SHA-512";
+    return "SHA-1";
+  }
+
+  function normalizeOtpType(value) {
+    return String(value || "TOTP").toUpperCase().includes("HOTP") ? "HOTP" : "TOTP";
+  }
+
+  function normalizeImportedEntry(raw, source) {
+    const type = normalizeOtpType(raw.type || raw.otp_type || raw.tokenType);
+    return {
+      id: uid(),
+      issuer: String(raw.issuer || raw.service || raw.name || "").trim(),
+      account: String(raw.account || raw.accountName || raw.username || "").trim(),
+      secret: normalizeSecret(raw.secret),
+      type,
+      algorithm: normalizeAlgorithm(raw.algorithm || raw.algo),
+      digits: Number(raw.digits || 6),
+      period: Number(raw.period || 30),
+      counter: Number(raw.counter || 0),
+      groupId: "default",
+      note: String(raw.note || "").trim(),
+      icon: String(raw.icon || "").trim().slice(0, 8),
+      source,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  function entryDuplicateKey(entry) {
+    const period = entry.type === "TOTP" ? Number(entry.period || 30) : "";
+    return [entry.type, entry.issuer, entry.account, entry.secret, entry.algorithm, entry.digits, period]
+      .map((part) => String(part || "").toLowerCase())
+      .join("|");
+  }
+
+  function parseOtpAuthUri(uri, source = "otpauth") {
+    const url = new URL(uri.trim());
+    if (url.protocol !== "otpauth:") {
+      throw new Error(t("reasonUnsupported"));
+    }
+    const type = normalizeOtpType(url.hostname);
+    const label = decodeURIComponent(url.pathname.replace(/^\//, ""));
+    const labelParts = label.split(":");
+    const issuerParam = url.searchParams.get("issuer") || "";
+    const issuer = issuerParam || (labelParts.length > 1 ? labelParts[0] : "");
+    const account = labelParts.length > 1 ? labelParts.slice(1).join(":") : label;
+    return normalizeImportedEntry(
+      {
+        type,
+        issuer,
+        account,
+        secret: url.searchParams.get("secret") || "",
+        algorithm: url.searchParams.get("algorithm") || "SHA1",
+        digits: url.searchParams.get("digits") || 6,
+        period: url.searchParams.get("period") || 30,
+        counter: url.searchParams.get("counter") || 0,
+      },
+      source,
+    );
+  }
+
+  function readVarint(bytes, start) {
+    let result = 0;
+    let shift = 0;
+    let index = start;
+    while (index < bytes.length) {
+      const byte = bytes[index];
+      result += (byte & 0x7f) * 2 ** shift;
+      index += 1;
+      if ((byte & 0x80) === 0) {
+        return { value: result, next: index };
+      }
+      shift += 7;
+    }
+    throw new Error("invalid varint");
+  }
+
+  function readProtoFields(bytes) {
+    const fields = [];
+    let index = 0;
+    while (index < bytes.length) {
+      const tag = readVarint(bytes, index);
+      index = tag.next;
+      const field = Math.floor(tag.value / 8);
+      const wireType = tag.value % 8;
+      if (wireType === 0) {
+        const value = readVarint(bytes, index);
+        fields.push({ field, wireType, value: value.value });
+        index = value.next;
+      } else if (wireType === 2) {
+        const length = readVarint(bytes, index);
+        index = length.next;
+        fields.push({ field, wireType, value: bytes.slice(index, index + length.value) });
+        index += length.value;
+      } else {
+        throw new Error("unsupported protobuf wire type");
+      }
+    }
+    return fields;
+  }
+
+  function decodeUtf8(bytes) {
+    return textDecoder.decode(bytes);
+  }
+
+  function parseGoogleOtpParameter(bytes) {
+    const parsed = {};
+    for (const item of readProtoFields(bytes)) {
+      if (item.field === 1) parsed.secret = bytesToBase32(item.value);
+      if (item.field === 2) parsed.name = decodeUtf8(item.value);
+      if (item.field === 3) parsed.issuer = decodeUtf8(item.value);
+      if (item.field === 4) parsed.algorithm = { 1: "SHA-1", 2: "SHA-256", 3: "SHA-512" }[item.value] || "SHA-1";
+      if (item.field === 5) parsed.digits = { 1: 6, 2: 8 }[item.value] || 6;
+      if (item.field === 6) parsed.type = { 1: "HOTP", 2: "TOTP" }[item.value] || "TOTP";
+      if (item.field === 7) parsed.counter = item.value;
+      if (item.field === 8) parsed.period = item.value;
+    }
+    const issuerPrefix = parsed.issuer ? `${parsed.issuer}:` : "";
+    const account = parsed.name && parsed.name.startsWith(issuerPrefix) ? parsed.name.slice(issuerPrefix.length) : parsed.name;
+    return normalizeImportedEntry(
+      {
+        issuer: parsed.issuer,
+        account,
+        secret: parsed.secret,
+        type: parsed.type,
+        algorithm: parsed.algorithm,
+        digits: parsed.digits,
+        counter: parsed.counter,
+        period: parsed.period,
+      },
+      "Google Authenticator",
+    );
+  }
+
+  function parseGoogleMigrationUri(uri) {
+    const url = new URL(uri.trim());
+    if (url.protocol !== "otpauth-migration:") {
+      throw new Error(t("reasonUnsupported"));
+    }
+    const data = url.searchParams.get("data");
+    if (!data) {
+      throw new Error(t("reasonUnsupported"));
+    }
+    const payload = fromBase64(data.replaceAll(" ", "+"));
+    return readProtoFields(payload)
+      .filter((item) => item.field === 1 && item.wireType === 2)
+      .map((item) => parseGoogleOtpParameter(item.value));
+  }
+
+  function parseAegisJson(json) {
+    if (!json?.db?.entries || !Array.isArray(json.db.entries)) {
+      return [];
+    }
+    return json.db.entries.map((item) =>
+      normalizeImportedEntry(
+        {
+          issuer: item.issuer,
+          account: item.name || item.issuer,
+          secret: item.info?.secret,
+          type: item.type,
+          algorithm: item.info?.algo,
+          digits: item.info?.digits,
+          period: item.info?.period,
+          counter: item.info?.counter,
+          note: item.note,
+        },
+        "Aegis",
+      ),
+    );
+  }
+
+  function parseTwoFasJson(json) {
+    if (!Array.isArray(json?.services)) {
+      return [];
+    }
+    return json.services.map((item) =>
+      normalizeImportedEntry(
+        {
+          issuer: item.name,
+          account: item.otp?.account || item.name,
+          secret: item.secret,
+          type: item.otp?.tokenType,
+          algorithm: item.otp?.algorithm,
+          digits: item.otp?.digits,
+          period: item.otp?.period,
+          counter: item.otp?.counter,
+          icon: item.icon?.label?.text,
+        },
+        "2FAS",
+      ),
+    );
+  }
+
+  function parseTwoFAuthJson(json) {
+    if (!String(json?.app || "").startsWith("2fauth_") || !json?.schema || !Array.isArray(json?.data)) {
+      return [];
+    }
+    return json.data.flatMap((item) => {
+      if (item.legacy_uri) {
+        try {
+          return [parseOtpAuthUri(item.legacy_uri, "2FAuth JSON")];
+        } catch {
+          return [];
+        }
+      }
+      return [
+        normalizeImportedEntry(
+          {
+            issuer: item.service,
+            account: item.account,
+            secret: item.secret,
+            type: item.otp_type,
+            algorithm: item.algorithm,
+            digits: item.digits,
+            period: item.period,
+            counter: item.counter,
+          },
+          "2FAuth JSON",
+        ),
+      ];
+    });
+  }
+
+  function parseGenericJson(json) {
+    const values = Array.isArray(json) ? json : [];
+    return values
+      .filter((item) => item && typeof item === "object")
+      .flatMap((item) => {
+        if (item.otpauth || item.uri || item.legacy_uri) {
+          try {
+            return [parseOtpAuthUri(item.otpauth || item.uri || item.legacy_uri, "JSON")];
+          } catch {
+            return [];
+          }
+        }
+        if (item.secret) {
+          return [normalizeImportedEntry(item, "JSON")];
+        }
+        return [];
+      });
+  }
+
+  function parseJsonImport(text) {
+    const json = JSON.parse(text);
+    return [
+      ...parseAegisJson(json),
+      ...parseTwoFasJson(json),
+      ...parseTwoFAuthJson(json),
+      ...parseGenericJson(json),
+    ];
+  }
+
+  function parseImportPayload(text) {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return [];
+    }
+    const results = [];
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      results.push(...parseJsonImport(trimmed));
+    }
+    const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    for (const line of lines) {
+      if (line.startsWith("otpauth://")) {
+        results.push(parseOtpAuthUri(line));
+      }
+      if (line.startsWith("otpauth-migration://")) {
+        results.push(...parseGoogleMigrationUri(line));
+      }
+    }
+    return results;
+  }
+
+  function previewImportItems(entries) {
+    const existingKeys = new Set(state.vault.entries.map(entryDuplicateKey));
+    const previewKeys = new Set();
+    return entries.map((entry) => {
+      let status = "valid";
+      let reason = "";
+      try {
+        base32ToBytes(entry.secret);
+      } catch {
+        status = "invalid";
+        reason = t("reasonInvalidSecret");
+      }
+      if (!entry.issuer || !entry.account || !entry.secret) {
+        status = "invalid";
+        reason = t("reasonMissingFields");
+      }
+      const key = entryDuplicateKey(entry);
+      if (status === "valid" && (existingKeys.has(key) || previewKeys.has(key))) {
+        status = "duplicate";
+        reason = t("reasonDuplicate");
+      }
+      previewKeys.add(key);
+      return {
+        id: uid(),
+        entry,
+        status,
+        reason,
+        selected: status === "valid",
+      };
+    });
   }
 
   function counterBytes(counter) {
@@ -376,7 +733,10 @@
             <label for="search">${t("search")}</label>
             <input id="search" value="${escapeHtml(state.search)}" />
           </div>
-          <button class="primary" data-action="new-entry">${t("addEntry")}</button>
+          <div class="inline-actions sidebar-actions">
+            <button class="primary" data-action="new-entry">${t("addEntry")}</button>
+            <button class="ghost" data-action="open-import">${t("importEntries")}</button>
+          </div>
           <div class="group-list">
             ${groupButton("all", t("allGroups"), state.vault.entries.length)}
             ${state.vault.groups.map((group) => groupButton(group.id, group.name, countGroup(group.id))).join("")}
@@ -406,6 +766,7 @@
           ${entryForm()}
         </aside>
       </div>
+      ${state.importOpen ? importPanel() : ""}
     `;
   }
 
@@ -547,6 +908,62 @@
     `;
   }
 
+  function importPanel() {
+    return `
+      <section class="modal-backdrop">
+        <div class="modal">
+          <div class="panel-title">
+            <h2>${t("importTitle")}</h2>
+            <button class="ghost" data-action="close-import">${t("close")}</button>
+          </div>
+          <div class="field">
+            <label>${t("chooseFile")}</label>
+            <input type="file" data-action="import-file" accept=".txt,.json,.2fas,.aegis" />
+          </div>
+          <div class="field">
+            <label>${t("importSource")}</label>
+            <textarea id="import-text" class="import-text" placeholder="${t("importHint")}">${escapeHtml(state.importText)}</textarea>
+          </div>
+          <div class="inline-actions">
+            <button class="primary" data-action="parse-import">${t("parseImport")}</button>
+            <button class="ghost" data-action="import-all">${t("importAll")}</button>
+            <button class="ghost" data-action="import-selected">${t("importSelected")}</button>
+          </div>
+          <div class="error">${escapeHtml(state.importMessage)}</div>
+          ${importPreview()}
+        </div>
+      </section>
+    `;
+  }
+
+  function importPreview() {
+    if (!state.importItems.length) {
+      return `<div class="empty">${t("importEmpty")}</div>`;
+    }
+    return `
+      <div class="import-preview" aria-label="${t("preview")}">
+        ${state.importItems.map(importPreviewRow).join("")}
+      </div>
+    `;
+  }
+
+  function importPreviewRow(item) {
+    const entry = item.entry;
+    return `
+      <label class="import-row ${item.status}">
+        <input type="checkbox" data-import-id="${item.id}" ${item.selected ? "checked" : ""} ${item.status !== "valid" ? "disabled" : ""} />
+        <span>
+          <strong>${escapeHtml(entry.issuer || "-")}</strong>
+          <span class="muted">${escapeHtml(entry.account || "-")}</span>
+        </span>
+        <span class="badge">${escapeHtml(entry.type)}</span>
+        <span class="badge">${escapeHtml(entry.source)}</span>
+        <span class="badge">${t(item.status)}</span>
+        <span class="muted">${escapeHtml(item.reason || "")}</span>
+      </label>
+    `;
+  }
+
   async function handleAuth(form) {
     const data = new FormData(form);
     const email = String(data.get("email") || "").trim().toLowerCase();
@@ -681,6 +1098,63 @@
     render();
   }
 
+  function parseCurrentImportText() {
+    if (!state.importText.trim()) {
+      state.importItems = [];
+      state.importMessage = t("importRequired");
+      render();
+      return;
+    }
+    try {
+      state.importItems = previewImportItems(parseImportPayload(state.importText));
+      state.importMessage = state.importItems.length ? "" : t("reasonUnsupported");
+    } catch {
+      state.importItems = [];
+      state.importMessage = t("reasonUnsupported");
+    }
+    render();
+  }
+
+  async function importPreviewItems(onlySelected) {
+    const items = state.importItems.filter((item) => item.status === "valid" && (!onlySelected || item.selected));
+    if (!items.length) {
+      state.importMessage = t("importNoSelection");
+      render();
+      return;
+    }
+
+    const now = new Date().toISOString();
+    for (const item of items) {
+      state.vault.entries.unshift({
+        ...item.entry,
+        id: uid(),
+        groupId: item.entry.groupId || "default",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    state.importOpen = false;
+    state.importText = "";
+    state.importItems = [];
+    state.importMessage = "";
+    await saveVault();
+    await refreshOtpCodes();
+    render();
+  }
+
+  async function readImportFile(file) {
+    try {
+      state.importText = await file.text();
+      state.importMessage = "";
+      state.importItems = previewImportItems(parseImportPayload(state.importText));
+    } catch {
+      state.importItems = [];
+      state.importMessage = t("importFileUnsupported");
+    }
+    render();
+  }
+
   function setMessage(message) {
     state.message = message;
     render();
@@ -744,11 +1218,11 @@
   function logout() {
     state.userEmail = "";
     state.cryptoKey = null;
-      state.vault = null;
-      state.editingId = null;
-      state.message = "";
-      state.otpCodes = new Map();
-      render();
+    state.vault = null;
+    state.editingId = null;
+    state.message = "";
+    state.otpCodes = new Map();
+    render();
   }
 
   document.addEventListener("submit", async (event) => {
@@ -800,6 +1274,25 @@
       state.message = "";
       render();
     }
+    if (action === "open-import") {
+      state.importOpen = true;
+      state.importMessage = "";
+      render();
+    }
+    if (action === "close-import") {
+      state.importOpen = false;
+      state.importMessage = "";
+      render();
+    }
+    if (action === "parse-import") {
+      parseCurrentImportText();
+    }
+    if (action === "import-all") {
+      await importPreviewItems(false);
+    }
+    if (action === "import-selected") {
+      await importPreviewItems(true);
+    }
     if (action === "delete-entry") {
       await deleteEntry(id);
     }
@@ -821,6 +1314,21 @@
     if (event.target.id === "search") {
       state.search = event.target.value;
       scheduleRender();
+    }
+    if (event.target.id === "import-text") {
+      state.importText = event.target.value;
+    }
+  });
+
+  document.addEventListener("change", async (event) => {
+    if (event.target.dataset.action === "import-file" && event.target.files[0]) {
+      await readImportFile(event.target.files[0]);
+    }
+    if (event.target.dataset.importId) {
+      const item = state.importItems.find((candidate) => candidate.id === event.target.dataset.importId);
+      if (item && item.status === "valid") {
+        item.selected = event.target.checked;
+      }
     }
   });
 
