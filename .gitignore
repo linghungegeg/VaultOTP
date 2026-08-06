@@ -4,6 +4,7 @@
 # Local environment files.
 .env
 .env.*
+/vaultotp-store.json
 
 # Dependency and build output.
 node_modules/
