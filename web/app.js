@@ -1,5 +1,7 @@
 (() => {
   const USERS_KEY = "vaultotp.users.v1";
+  const ADMIN_KEY = "vaultotp.admin.v1";
+  const ADMIN_AUDIT_KEY = "vaultotp.admin.audit.v1";
   const ITERATIONS = 120000;
 
   const textEncoder = new TextEncoder();
@@ -76,12 +78,64 @@
     reasonInvalidSecret: "Secret 无效",
     reasonMissingFields: "缺少必要字段",
     reasonUnsupported: "未识别的导入格式",
+    adminEntry: "Admin 后台",
+    userEntry: "用户端",
+    adminTitle: "VaultOTP Admin",
+    adminSubtitle: "独立后台",
+    setupAdmin: "创建唯一 Admin",
+    adminLogin: "Admin 登录",
+    adminExists: "Admin 已存在",
+    adminRequired: "请先创建 Admin",
+    adminUseAdminLogin: "Admin 请从后台入口登录",
+    userUseUserLogin: "普通用户不能登录 Admin 后台",
+    disabledAccount: "账号已禁用",
+    users: "用户",
+    auditLogs: "审计",
+    userList: "用户列表",
+    userDetail: "用户详情",
+    accountStatus: "账号状态",
+    active: "启用",
+    disabled: "禁用",
+    disableUser: "禁用用户",
+    deleteUser: "删除用户",
+    disableUserConfirm: "确定禁用这个用户吗？",
+    adminDeleteUserConfirm: "确定删除这个用户和本地 vault 吗？",
+    noUsers: "暂无普通用户",
+    noUserSelected: "请选择用户",
+    noAdminAccess: "该用户 vault 尚无 Admin 访问封套；用户下次登录或保存后会补齐。",
+    noAdminAccount: "尚未创建 Admin",
+    savedItems: "保存项",
+    viewSecret: "查看 Secret",
+    viewOtp: "查看验证码",
+    hiddenByDefault: "默认隐藏",
+    lastLogin: "上次登录",
+    createdAt: "创建时间",
+    updatedAt: "更新时间",
+    adminLogout: "退出后台",
+    targetUser: "目标用户",
+    action: "操作",
+    time: "时间",
+    adminBackToUser: "返回用户端",
+    adminCreateHint: "先创建唯一 Admin，再管理用户。",
+    adminLoginHint: "使用 Admin 账号进入独立后台。",
+    adminSetupTitle: "创建 Admin",
+    adminLoginTitle: "Admin 登录",
+    adminUsersTitle: "用户管理",
+    adminAuditTitle: "审计记录",
+    adminViewSecret: "查看 Secret",
+    adminViewOtp: "查看验证码",
+    adminDisable: "禁用",
+    adminDelete: "删除",
+    adminNoSelection: "请选择一个用户",
+    loading: "加载中",
   };
 
   const state = {
+    route: "app",
     authMode: "login",
     userEmail: "",
     cryptoKey: null,
+    vaultKeyBytes: null,
     vault: null,
     editingId: null,
     groupFilter: "all",
@@ -94,6 +148,13 @@
     importText: "",
     importItems: [],
     importMessage: "",
+    adminEmail: "",
+    adminPrivateKey: null,
+    adminPublicKey: null,
+    adminSelectedUserEmail: "",
+    adminVault: null,
+    adminMessage: "",
+    adminReveals: {},
   };
 
   const app = document.getElementById("app");
@@ -120,6 +181,34 @@
 
   function writeUsers(users) {
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  }
+
+  function readAuditLogs() {
+    try {
+      return JSON.parse(localStorage.getItem(ADMIN_AUDIT_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  }
+
+  function writeAuditLogs(logs) {
+    localStorage.setItem(ADMIN_AUDIT_KEY, JSON.stringify(logs));
+  }
+
+  function readAdmin() {
+    try {
+      return JSON.parse(localStorage.getItem(ADMIN_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
+
+  function writeAdmin(admin) {
+    if (!admin) {
+      localStorage.removeItem(ADMIN_KEY);
+      return;
+    }
+    localStorage.setItem(ADMIN_KEY, JSON.stringify(admin));
   }
 
   function toBase64(bytes) {
@@ -180,6 +269,85 @@
     );
   }
 
+  async function importAesKey(rawBytes) {
+    return crypto.subtle.importKey("raw", rawBytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  }
+
+  function randomBytes(length) {
+    const bytes = new Uint8Array(length);
+    crypto.getRandomValues(bytes);
+    return bytes;
+  }
+
+  async function encryptBytes(bytes, key) {
+    const iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, bytes);
+    return {
+      iv: toBase64(iv),
+      data: toBase64(ciphertext),
+    };
+  }
+
+  async function decryptBytes(record, key) {
+    return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(record.iv) }, key, fromBase64(record.data)));
+  }
+
+  async function generateAdminKeyPair(password, keySalt) {
+    const pair = await crypto.subtle.generateKey(
+      {
+        name: "RSA-OAEP",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["encrypt", "decrypt"],
+    );
+    const privateJwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+    const publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+    const key = await deriveKey(password, keySalt);
+    return {
+      publicKey: publicJwk,
+      privateKey: await encryptBytes(textEncoder.encode(JSON.stringify(privateJwk)), key),
+    };
+  }
+
+  async function importAdminPublicKey(jwk) {
+    return crypto.subtle.importKey("jwk", jwk, { name: "RSA-OAEP", hash: "SHA-256" }, false, ["encrypt"]);
+  }
+
+  async function importAdminPrivateKey(jwk) {
+    return crypto.subtle.importKey("jwk", jwk, { name: "RSA-OAEP", hash: "SHA-256" }, false, ["decrypt"]);
+  }
+
+  function hasAdmin() {
+    return Boolean(readAdmin());
+  }
+
+  function adminRecord() {
+    return readAdmin();
+  }
+
+  async function createAdminAccess(vaultKeyBytes, admin = readAdmin()) {
+    if (!admin?.publicKey) {
+      return null;
+    }
+    const publicKey = await importAdminPublicKey(admin.publicKey);
+    const wrapped = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, vaultKeyBytes);
+    return {
+      version: 1,
+      data: toBase64(wrapped),
+    };
+  }
+
+  function publicUserRecords(users = readUsers()) {
+    return Object.entries(users)
+      .filter(([, user]) => user.role !== "admin")
+      .map(([email, user]) => ({ email, user }))
+      .sort((a, b) => a.email.localeCompare(b.email));
+  }
+
   async function encryptVault(vault, key) {
     const iv = new Uint8Array(12);
     crypto.getRandomValues(iv);
@@ -203,11 +371,130 @@
     return JSON.parse(textDecoder.decode(plaintext));
   }
 
+  async function createUserVaultKey(password, passwordSalt) {
+    const vaultKeyBytes = randomBytes(32);
+    const passwordKey = await deriveKey(password, passwordSalt);
+    return {
+      vaultKeyBytes,
+      vaultKeyEncrypted: await encryptBytes(vaultKeyBytes, passwordKey),
+    };
+  }
+
+  async function unwrapUserVaultKey(password, passwordSalt, encryptedVaultKey) {
+    const passwordKey = await deriveKey(password, passwordSalt);
+    return decryptBytes(encryptedVaultKey, passwordKey);
+  }
+
+  async function createAdminRecord(password, email) {
+    const passwordSalt = randomBase64(16);
+    const passwordHash = toBase64(await deriveBits(password, passwordSalt));
+    const keyPair = await generateAdminKeyPair(password, passwordSalt);
+    return {
+      email,
+      passwordSalt,
+      passwordHash,
+      publicKey: keyPair.publicKey,
+      privateKeyEncrypted: keyPair.privateKey,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastLoginAt: null,
+    };
+  }
+
+  async function decryptAdminPrivateKey(admin, password) {
+    const key = await deriveKey(password, admin.passwordSalt);
+    const privateJwkJson = textDecoder.decode(await decryptBytes(admin.privateKeyEncrypted, key));
+    const privateJwk = JSON.parse(privateJwkJson);
+    return importAdminPrivateKey(privateJwk);
+  }
+
   async function saveVault() {
     const users = readUsers();
     const user = users[state.userEmail];
+    if (!user || user.status === "disabled") {
+      logout();
+      return;
+    }
     user.vault = await encryptVault(state.vault, state.cryptoKey);
+    user.updatedAt = new Date().toISOString();
+    if (state.vaultKeyBytes && hasAdmin()) {
+      user.adminAccess = await createAdminAccess(state.vaultKeyBytes);
+    }
     writeUsers(users);
+  }
+
+  function currentUserRecord() {
+    const users = readUsers();
+    return users[state.userEmail] || null;
+  }
+
+  function currentAdminRecord() {
+    return readAdmin();
+  }
+
+  function isCurrentUserActive() {
+    const user = currentUserRecord();
+    return Boolean(user && user.status !== "disabled");
+  }
+
+  function syncRouteFromLocation() {
+    const hashRoute = window.location.hash.replace(/^#\/?/, "");
+    const route = window.location.pathname.startsWith("/admin") || hashRoute === "admin" ? "admin" : "app";
+    state.route = route;
+    if (route === "admin") {
+      document.title = t("adminTitle");
+    } else {
+      document.title = t("authTitle");
+    }
+  }
+
+  function goToRoute(route) {
+    if (window.location.protocol === "file:") {
+      window.location.hash = route;
+    } else {
+      const target = route === "admin" ? "/admin" : "/app";
+      if (window.location.pathname !== target) {
+        history.pushState({}, "", target);
+      }
+    }
+    syncRouteFromLocation();
+    render();
+  }
+
+  function clearUserSession() {
+    state.userEmail = "";
+    state.cryptoKey = null;
+    state.vaultKeyBytes = null;
+    state.vault = null;
+    state.editingId = null;
+    state.message = "";
+    state.otpCodes = new Map();
+  }
+
+  function clearAdminSession() {
+    state.adminEmail = "";
+    state.adminPrivateKey = null;
+    state.adminPublicKey = null;
+    state.adminSelectedUserEmail = "";
+    state.adminVault = null;
+    state.adminMessage = "";
+    state.adminReveals = {};
+  }
+
+  function appendAudit(action, targetUserEmail = "", targetEntryId = "", extra = {}) {
+    const logs = readAuditLogs();
+    logs.unshift({
+      id: uid(),
+      actor_admin_id: state.adminEmail,
+      target_user_id: targetUserEmail,
+      target_entry_id: targetEntryId,
+      action,
+      ip: "local",
+      user_agent: navigator.userAgent,
+      created_at: new Date().toISOString(),
+      ...extra,
+    });
+    writeAuditLogs(logs.slice(0, 200));
   }
 
   function scheduleRender() {
@@ -672,11 +959,23 @@
   }
 
   function render() {
+    syncRouteFromLocation();
+    if (state.route === "admin") {
+      if (!state.adminEmail) {
+        renderAdminAuth();
+        return;
+      }
+      renderAdminApp();
+      return;
+    }
+    if (state.userEmail && !isCurrentUserActive()) {
+      clearUserSession();
+    }
     if (!state.userEmail) {
       renderAuth();
       return;
     }
-    renderApp();
+    renderUserApp();
   }
 
   function renderAuth() {
@@ -713,11 +1012,58 @@
           <div class="error">${escapeHtml(state.message)}</div>
           <button class="primary" type="submit">${state.authMode === "login" ? t("loginAction") : t("createAccount")}</button>
         </form>
+        <div class="auth-switch">
+          <button class="ghost" type="button" data-route="admin">${t("adminEntry")}</button>
+        </div>
       </section>
     `;
   }
 
-  function renderApp() {
+  function renderAdminAuth() {
+    app.className = "screen auth-screen";
+    const admin = readAdmin();
+    const setupMode = !admin;
+    app.innerHTML = `
+      <section class="auth-panel admin-auth">
+        <div class="brand-row">
+          <div>
+            <div class="brand">${t("adminTitle")}</div>
+            <div class="muted">${setupMode ? t("adminCreateHint") : t("adminLoginHint")}</div>
+          </div>
+          <button class="ghost" type="button" data-route="app">${t("adminBackToUser")}</button>
+        </div>
+        <div class="tabs">
+          ${
+            setupMode
+              ? `<button class="tab active" disabled>${t("adminSetupTitle")}</button>`
+              : `<button class="tab active" disabled>${t("adminLoginTitle")}</button>`
+          }
+        </div>
+        <form id="admin-auth-form">
+          <div class="field">
+            <label for="adminEmail">${t("email")}</label>
+            <input id="adminEmail" name="email" type="email" autocomplete="username" required value="${escapeHtml(state.adminEmail)}" />
+          </div>
+          <div class="field">
+            <label for="adminPassword">${t("password")}</label>
+            <input id="adminPassword" name="password" type="password" autocomplete="${setupMode ? "new-password" : "current-password"}" required />
+          </div>
+          ${
+            setupMode
+              ? `<div class="field">
+                  <label for="adminConfirmPassword">${t("confirmPassword")}</label>
+                  <input id="adminConfirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required />
+                </div>`
+              : ""
+          }
+          <div class="error">${escapeHtml(state.adminMessage)}</div>
+          <button class="primary" type="submit">${setupMode ? t("setupAdmin") : t("adminLogin")}</button>
+        </form>
+      </section>
+    `;
+  }
+
+  function renderUserApp() {
     app.className = "screen";
     const entries = filteredEntries();
     app.innerHTML = `
@@ -767,6 +1113,76 @@
         </aside>
       </div>
       ${state.importOpen ? importPanel() : ""}
+    `;
+  }
+
+  function renderAdminApp() {
+    app.className = "screen admin-screen";
+    const users = publicUserRecords();
+    const selected = users.find((item) => item.email === state.adminSelectedUserEmail) || users[0] || null;
+    if (selected && selected.email !== state.adminSelectedUserEmail) {
+      state.adminSelectedUserEmail = selected.email;
+    }
+    const needsLoad = selected && (!state.adminVault || state.adminVault.email !== selected.email);
+    if (needsLoad) {
+      loadAdminUser(selected.email);
+    }
+    const audits = readAuditLogs();
+    app.innerHTML = `
+      <div class="admin-layout">
+        <aside class="admin-sidebar">
+          <div class="brand-row">
+            <div>
+              <div class="brand">${t("adminTitle")}</div>
+              <div class="muted">${escapeHtml(state.adminEmail)}</div>
+            </div>
+            <button class="ghost" type="button" data-route="app">${t("adminBackToUser")}</button>
+          </div>
+          <div class="sidebar-section">
+            <div class="section-title">${t("adminUsersTitle")}</div>
+            <div class="admin-user-list">
+              ${
+                users.length
+                  ? users
+                      .map(
+                        ({ email, user }) => `
+                          <button class="admin-user-item ${state.adminSelectedUserEmail === email ? "active" : ""}" data-admin-user="${escapeHtml(email)}">
+                            <span>${escapeHtml(email)}</span>
+                            <span class="badge ${user.status === "disabled" ? "disabled-badge" : ""}">${escapeHtml(user.status || "active")}</span>
+                          </button>
+                        `,
+                      )
+                      .join("")
+                  : `<div class="empty">${t("noUsers")}</div>`
+              }
+            </div>
+          </div>
+          <div class="sidebar-section">
+            <div class="section-title">${t("adminAuditTitle")}</div>
+            <div class="admin-audit-list">
+              ${
+                audits.length
+                  ? audits.slice(0, 12).map(adminAuditRow).join("")
+                  : `<div class="empty">${t("auditLogs")}</div>`
+              }
+            </div>
+          </div>
+        </aside>
+        <main class="admin-main">
+          <header class="topbar admin-topbar">
+            <div>
+              <strong>${t("userDetail")}</strong>
+              <span class="muted">${selected ? escapeHtml(selected.email) : t("adminNoSelection")}</span>
+            </div>
+            <div class="inline-actions">
+              <button class="ghost" type="button" data-action="admin-logout">${t("adminLogout")}</button>
+            </div>
+          </header>
+          <section class="admin-content">
+            ${selected ? (needsLoad ? `<div class="empty">${t("loading")}</div>` : adminDetailPanel(selected)) : `<div class="empty">${t("adminNoSelection")}</div>`}
+          </section>
+        </main>
+      </div>
     `;
   }
 
@@ -964,6 +1380,88 @@
     `;
   }
 
+  function adminAuditRow(log) {
+    return `
+      <div class="audit-row">
+        <span>${escapeHtml(log.created_at)}</span>
+        <span>${escapeHtml(log.action)}</span>
+        <span>${escapeHtml(log.target_user_id || "-")}</span>
+        <span>${escapeHtml(log.target_entry_id || "-")}</span>
+      </div>
+    `;
+  }
+
+  function adminDetailPanel(selected) {
+    const vaultState = state.adminVault && state.adminVault.email === selected.email ? state.adminVault : null;
+    const user = selected.user;
+    const entries = vaultState?.vault?.entries || [];
+    return `
+      <section class="admin-detail">
+        <div class="admin-summary">
+          <div>
+            <div class="section-title">${t("userDetail")}</div>
+            <div class="muted">${escapeHtml(selected.email)}</div>
+          </div>
+          <div class="inline-actions">
+            <button class="danger" type="button" data-action="admin-disable-user" data-id="${escapeHtml(selected.email)}">${t("adminDisable")}</button>
+            <button class="danger" type="button" data-action="admin-delete-user" data-id="${escapeHtml(selected.email)}">${t("adminDelete")}</button>
+          </div>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-item">
+            <span class="muted">${t("accountStatus")}</span>
+            <strong>${escapeHtml(user.status || "active")}</strong>
+          </div>
+          <div class="detail-item">
+            <span class="muted">${t("createdAt")}</span>
+            <strong>${escapeHtml(user.createdAt || "-")}</strong>
+          </div>
+          <div class="detail-item">
+            <span class="muted">${t("lastLogin")}</span>
+            <strong>${escapeHtml(user.lastLoginAt || "-")}</strong>
+          </div>
+          <div class="detail-item">
+            <span class="muted">${t("savedItems")}</span>
+            <strong>${entries.length}</strong>
+          </div>
+        </div>
+        <div class="section-title">${t("savedItems")}</div>
+        ${
+          vaultState?.error
+            ? `<div class="empty">${escapeHtml(vaultState.error)}</div>`
+            : entries.length
+              ? `<div class="admin-entry-list">${entries.map((entry) => adminEntryRow(selected.email, entry)).join("")}</div>`
+              : `<div class="empty">${t("noEntries")}</div>`
+        }
+      </section>
+    `;
+  }
+
+  function adminEntryRow(userEmail, entry) {
+    const reveal = state.adminReveals[entry.id] || {};
+    const groups = state.adminVault?.vault?.groups || [];
+    const groupName = (groups.find((group) => group.id === entry.groupId) || {}).name || "Default";
+    return `
+      <article class="admin-entry-row">
+        <div class="admin-entry-top">
+          <div>
+            <strong>${escapeHtml(entry.issuer)}</strong>
+            <div class="muted">${escapeHtml(entry.account)} · ${escapeHtml(entry.type)}</div>
+          </div>
+          <span class="badge">${escapeHtml(groupName)}</span>
+        </div>
+        <div class="admin-entry-actions">
+          <button class="ghost" type="button" data-action="admin-view-secret" data-user="${escapeHtml(userEmail)}" data-entry="${entry.id}">${t("adminViewSecret")}</button>
+          <button class="ghost" type="button" data-action="admin-view-otp" data-user="${escapeHtml(userEmail)}" data-entry="${entry.id}">${t("adminViewOtp")}</button>
+        </div>
+        <div class="admin-entry-values">
+          <div><span class="muted">${t("secret")}</span><div class="admin-value">${escapeHtml(reveal.secret || t("hiddenByDefault"))}</div></div>
+          <div><span class="muted">${t("viewOtp")}</span><div class="admin-value">${escapeHtml(reveal.otp || t("hiddenByDefault"))}</div></div>
+        </div>
+      </article>
+    `;
+  }
+
   async function handleAuth(form) {
     const data = new FormData(form);
     const email = String(data.get("email") || "").trim().toLowerCase();
@@ -980,6 +1478,11 @@
     }
 
     const users = readUsers();
+    const admin = readAdmin();
+    if (admin?.email === email) {
+      setMessage(t("adminUseAdminLogin"));
+      return;
+    }
     if (state.authMode === "register") {
       if (password !== confirmPassword) {
         setMessage(t("passwordMismatch"));
@@ -991,20 +1494,28 @@
       }
 
       const passwordSalt = randomBase64(16);
-      const vaultSalt = randomBase64(16);
+      const vaultKeySalt = randomBase64(16);
       const passwordHash = toBase64(await deriveBits(password, passwordSalt));
-      const cryptoKey = await deriveKey(password, vaultSalt);
+      const { vaultKeyBytes, vaultKeyEncrypted } = await createUserVaultKey(password, vaultKeySalt);
+      const cryptoKey = await importAesKey(vaultKeyBytes);
       const vault = emptyVault();
+      const now = new Date().toISOString();
       users[email] = {
         passwordSalt,
-        vaultSalt,
+        vaultKeySalt,
         passwordHash,
+        vaultKeyEncrypted,
+        adminAccess: await createAdminAccess(vaultKeyBytes),
+        status: "active",
         vault: await encryptVault(vault, cryptoKey),
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
+        lastLoginAt: now,
       };
       writeUsers(users);
       state.userEmail = email;
       state.cryptoKey = cryptoKey;
+      state.vaultKeyBytes = vaultKeyBytes;
       state.vault = vault;
       state.message = "";
       await refreshOtpCodes();
@@ -1017,6 +1528,10 @@
       setMessage(t("invalidLogin"));
       return;
     }
+    if (user.status === "disabled") {
+      setMessage(t("disabledAccount"));
+      return;
+    }
 
     const passwordHash = toBase64(await deriveBits(password, user.passwordSalt));
     if (passwordHash !== user.passwordHash) {
@@ -1025,8 +1540,35 @@
     }
 
     try {
-      state.cryptoKey = await deriveKey(password, user.vaultSalt);
-      state.vault = await decryptVault(user.vault, state.cryptoKey);
+      let vaultKeyBytes;
+      let cryptoKey;
+      let vault;
+      if (user.vaultKeyEncrypted) {
+        vaultKeyBytes = await unwrapUserVaultKey(password, user.vaultKeySalt, user.vaultKeyEncrypted);
+        cryptoKey = await importAesKey(vaultKeyBytes);
+        vault = await decryptVault(user.vault, cryptoKey);
+      } else {
+        const legacyKey = await deriveKey(password, user.vaultSalt);
+        vault = await decryptVault(user.vault, legacyKey);
+        vaultKeyBytes = randomBytes(32);
+        cryptoKey = await importAesKey(vaultKeyBytes);
+        const vaultKeySalt = randomBase64(16);
+        const passwordKey = await deriveKey(password, vaultKeySalt);
+        user.vaultKeySalt = vaultKeySalt;
+        user.vaultKeyEncrypted = await encryptBytes(vaultKeyBytes, passwordKey);
+        user.vault = await encryptVault(vault, cryptoKey);
+      }
+      const now = new Date().toISOString();
+      user.status = user.status || "active";
+      user.lastLoginAt = now;
+      user.updatedAt = now;
+      if (hasAdmin()) {
+        user.adminAccess = await createAdminAccess(vaultKeyBytes);
+      }
+      writeUsers(users);
+      state.cryptoKey = cryptoKey;
+      state.vaultKeyBytes = vaultKeyBytes;
+      state.vault = vault;
       state.userEmail = email;
       state.message = "";
       state.editingId = null;
@@ -1035,6 +1577,179 @@
     } catch {
       setMessage(t("invalidLogin"));
     }
+  }
+
+  async function handleAdminAuth(form) {
+    const data = new FormData(form);
+    const email = String(data.get("email") || "").trim().toLowerCase();
+    const password = String(data.get("password") || "");
+    const confirmPassword = String(data.get("confirmPassword") || "");
+    const admin = readAdmin();
+    const setupMode = !admin;
+
+    if (!email.includes("@")) {
+      state.adminMessage = t("invalidEmail");
+      render();
+      return;
+    }
+    if (!password) {
+      state.adminMessage = t("required");
+      render();
+      return;
+    }
+
+    if (setupMode) {
+      if (admin) {
+        state.adminMessage = t("adminExists");
+        render();
+        return;
+      }
+      if (readUsers()[email]) {
+        state.adminMessage = t("userUseUserLogin");
+        render();
+        return;
+      }
+      if (password !== confirmPassword) {
+        state.adminMessage = t("passwordMismatch");
+        render();
+        return;
+      }
+      const record = await createAdminRecord(password, email);
+      writeAdmin(record);
+      state.adminMessage = "";
+      render();
+      return;
+    }
+
+    if (!admin) {
+      state.adminMessage = t("adminRequired");
+      render();
+      return;
+    }
+    if (readUsers()[email]) {
+      state.adminMessage = t("userUseUserLogin");
+      render();
+      return;
+    }
+    if (email !== admin.email) {
+      state.adminMessage = t("invalidLogin");
+      render();
+      return;
+    }
+    const passwordHash = toBase64(await deriveBits(password, admin.passwordSalt));
+    if (passwordHash !== admin.passwordHash) {
+      state.adminMessage = t("invalidLogin");
+      render();
+      return;
+    }
+
+    try {
+      state.adminPrivateKey = await decryptAdminPrivateKey(admin, password);
+      state.adminPublicKey = admin.publicKey;
+      state.adminEmail = admin.email;
+      state.adminMessage = "";
+      admin.lastLoginAt = new Date().toISOString();
+      admin.updatedAt = admin.lastLoginAt;
+      writeAdmin(admin);
+      const first = publicUserRecords()[0];
+      if (first) {
+        await loadAdminUser(first.email, false);
+      }
+      render();
+    } catch {
+      state.adminMessage = t("invalidLogin");
+      render();
+    }
+  }
+
+  async function loadAdminUser(email, shouldRender = true) {
+    const users = readUsers();
+    const user = users[email];
+    state.adminSelectedUserEmail = email;
+    state.adminReveals = {};
+    if (!user) {
+      state.adminVault = null;
+      if (shouldRender) render();
+      return;
+    }
+    if (!state.adminPrivateKey || !user.adminAccess?.data) {
+      state.adminVault = { email, user, vault: null, error: t("noAdminAccess") };
+      if (shouldRender) render();
+      return;
+    }
+    try {
+      const vaultKeyBytes = new Uint8Array(
+        await crypto.subtle.decrypt({ name: "RSA-OAEP" }, state.adminPrivateKey, fromBase64(user.adminAccess.data)),
+      );
+      const vaultKey = await importAesKey(vaultKeyBytes);
+      const vault = await decryptVault(user.vault, vaultKey);
+      state.adminVault = { email, user, vault, vaultKeyBytes };
+      state.adminMessage = "";
+    } catch {
+      state.adminVault = { email, user, vault: null, error: t("noAdminAccess") };
+    }
+    if (shouldRender) {
+      render();
+    }
+  }
+
+  async function revealAdminEntry(userEmail, entryId, field) {
+    if (!state.adminVault || state.adminVault.email !== userEmail) {
+      await loadAdminUser(userEmail, false);
+    }
+    const entry = state.adminVault?.vault?.entries?.find((item) => item.id === entryId);
+    if (!entry) {
+      return;
+    }
+    const reveal = state.adminReveals[entryId] || {};
+    if (field === "secret") {
+      reveal.secret = entry.secret;
+      appendAudit("view_secret", userEmail, entryId);
+    }
+    if (field === "otp") {
+      reveal.otp = await codeFor(entry);
+      appendAudit("view_otp", userEmail, entryId);
+    }
+    state.adminReveals[entryId] = reveal;
+    render();
+  }
+
+  async function disableAdminUser(email) {
+    if (!confirm(t("disableUserConfirm"))) {
+      return;
+    }
+    const users = readUsers();
+    const user = users[email];
+    if (!user) {
+      return;
+    }
+    user.status = "disabled";
+    user.updatedAt = new Date().toISOString();
+    writeUsers(users);
+    appendAudit("disable_user", email);
+    await loadAdminUser(email, false);
+    render();
+  }
+
+  async function deleteAdminUser(email) {
+    if (!confirm(t("adminDeleteUserConfirm"))) {
+      return;
+    }
+    const users = readUsers();
+    if (!users[email]) {
+      return;
+    }
+    delete users[email];
+    writeUsers(users);
+    appendAudit("delete_user", email);
+    const next = publicUserRecords(users)[0];
+    if (next) {
+      await loadAdminUser(next.email, false);
+    } else {
+      state.adminSelectedUserEmail = "";
+      state.adminVault = null;
+    }
+    render();
   }
 
   async function handleEntrySave(form) {
@@ -1206,22 +1921,17 @@
     const users = readUsers();
     delete users[state.userEmail];
     writeUsers(users);
-    state.userEmail = "";
-    state.cryptoKey = null;
-    state.vault = null;
-    state.editingId = null;
-    state.message = "";
-    state.otpCodes = new Map();
+    clearUserSession();
     render();
   }
 
   function logout() {
-    state.userEmail = "";
-    state.cryptoKey = null;
-    state.vault = null;
-    state.editingId = null;
-    state.message = "";
-    state.otpCodes = new Map();
+    clearUserSession();
+    render();
+  }
+
+  function adminLogout() {
+    clearAdminSession();
     render();
   }
 
@@ -1230,6 +1940,9 @@
     const formId = event.target.getAttribute("id");
     if (formId === "auth-form") {
       await handleAuth(event.target);
+    }
+    if (formId === "admin-auth-form") {
+      await handleAdminAuth(event.target);
     }
     if (formId === "entry-form") {
       await handleEntrySave(event.target);
@@ -1242,10 +1955,20 @@
       return;
     }
 
+    if (target.dataset.route) {
+      goToRoute(target.dataset.route);
+      return;
+    }
+
     if (target.dataset.authMode) {
       state.authMode = target.dataset.authMode;
       state.message = "";
       render();
+      return;
+    }
+
+    if (target.dataset.adminUser) {
+      await loadAdminUser(target.dataset.adminUser);
       return;
     }
 
@@ -1264,6 +1987,21 @@
 
     const action = target.dataset.action;
     const id = target.dataset.id;
+    if (action === "admin-logout") {
+      adminLogout();
+    }
+    if (action === "admin-disable-user") {
+      await disableAdminUser(id);
+    }
+    if (action === "admin-delete-user") {
+      await deleteAdminUser(id);
+    }
+    if (action === "admin-view-secret") {
+      await revealAdminEntry(target.dataset.user, target.dataset.entry, "secret");
+    }
+    if (action === "admin-view-otp") {
+      await revealAdminEntry(target.dataset.user, target.dataset.entry, "otp");
+    }
     if (action === "new-entry") {
       state.editingId = null;
       state.message = "";
@@ -1333,10 +2071,25 @@
   });
 
   setInterval(() => {
+    if (state.userEmail && !isCurrentUserActive()) {
+      clearUserSession();
+      render();
+      return;
+    }
     if (state.vault) {
       refreshOtpCodes();
     }
   }, 1000);
+
+  window.addEventListener("popstate", () => {
+    syncRouteFromLocation();
+    render();
+  });
+
+  window.addEventListener("hashchange", () => {
+    syncRouteFromLocation();
+    render();
+  });
 
   render();
 })();

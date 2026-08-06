@@ -69,6 +69,10 @@ button:disabled {
   padding: 24px;
 }
 
+.auth-switch {
+  margin-top: 14px;
+}
+
 .brand-row,
 .topbar,
 .panel-title,
@@ -305,6 +309,152 @@ textarea {
   margin-top: 12px;
 }
 
+.admin-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.admin-sidebar,
+.admin-main {
+  min-width: 0;
+}
+
+.admin-sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 18px;
+}
+
+.sidebar-section {
+  margin-top: 22px;
+}
+
+.section-title {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.admin-user-list,
+.admin-audit-list,
+.admin-entry-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-user-item {
+  align-items: center;
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.admin-user-item.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.disabled-badge {
+  color: var(--danger);
+}
+
+.admin-content {
+  padding: 18px;
+}
+
+.admin-detail,
+.admin-summary,
+.admin-entry-row {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-summary {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.detail-grid {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.detail-item {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.detail-item:last-child {
+  border-right: 0;
+}
+
+.detail-item strong,
+.admin-user-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-entry-row {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.admin-entry-top,
+.admin-entry-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.admin-entry-top {
+  justify-content: space-between;
+}
+
+.admin-entry-actions {
+  flex-wrap: wrap;
+}
+
+.admin-entry-values {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  padding-top: 12px;
+}
+
+.admin-value {
+  color: var(--code);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.audit-row {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+  grid-template-columns: 1fr 0.8fr 1fr 0.8fr;
+  padding: 8px;
+}
+
 .modal-backdrop {
   align-items: center;
   background: rgb(15 23 42 / 45%);
@@ -373,6 +523,26 @@ textarea {
 @media (max-width: 760px) {
   .layout {
     display: block;
+  }
+
+  .admin-layout {
+    display: block;
+  }
+
+  .admin-sidebar {
+    border-bottom: 1px solid var(--line);
+    border-right: 0;
+  }
+
+  .admin-summary,
+  .detail-grid,
+  .admin-entry-values {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-item {
+    border-bottom: 1px solid var(--line);
+    border-right: 0;
   }
 
   .sidebar {

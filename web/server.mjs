@@ -14,7 +14,8 @@ const contentTypes = {
 
 const server = createServer(async (request, response) => {
   const urlPath = decodeURIComponent(new URL(request.url, `http://${host}`).pathname);
-  const requestedPath = urlPath === "/" ? "index.html" : urlPath.slice(1);
+  const isAppRoute = urlPath === "/app" || urlPath === "/admin";
+  const requestedPath = urlPath === "/" || isAppRoute ? "index.html" : urlPath.slice(1);
   const filePath = normalize(join(root, requestedPath));
 
   if (!filePath.startsWith(normalize(root))) {
