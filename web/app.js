@@ -81,6 +81,7 @@
     active: "启用",
     disabled: "禁用",
     adminDeleteUserConfirm: "确定删除这个用户和服务端保存项吗？",
+    adminDisableUserConfirm: "确定禁用这个用户吗？",
     noUsers: "暂无普通用户",
     savedItems: "保存项",
     viewSecret: "查看 Secret",
@@ -1351,7 +1352,7 @@
   }
 
   async function disableAdminUser(email) {
-    if (!confirm(t("adminDisable"))) return;
+    if (!confirm(t("adminDisableUserConfirm"))) return;
     await api(`/api/admin/users/${encodeURIComponent(email)}/disable`, { method: "POST" }, state.adminToken);
     await loadAdminData();
     render();
@@ -1381,22 +1382,34 @@
   }
 
   async function logout() {
+    let logoutFailed = false;
     if (state.userToken) {
       try {
         await api("/api/auth/logout", { method: "POST" });
-      } catch {}
+      } catch {
+        logoutFailed = true;
+      }
     }
     clearUserSession();
+    if (logoutFailed) {
+      state.message = t("serverError");
+    }
     render();
   }
 
   async function adminLogout() {
+    let logoutFailed = false;
     if (state.adminToken) {
       try {
         await api("/api/auth/logout", { method: "POST" }, state.adminToken);
-      } catch {}
+      } catch {
+        logoutFailed = true;
+      }
     }
     clearAdminSession();
+    if (logoutFailed) {
+      state.adminMessage = t("serverError");
+    }
     render();
   }
 

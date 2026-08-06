@@ -550,12 +550,6 @@ async function handleApi(request, response, pathname) {
     return;
   }
 
-  if (pathname === "/api/secret-key" && request.method === "GET") {
-    const pair = await ensureCrypto(store);
-    jsonResponse(response, 200, { secretPublicKey: pair.publicKeyJwk });
-    return;
-  }
-
   if (pathname === "/api/pats" && request.method === "GET") {
     if (!requireUser(ctx, response)) return;
     const pats = store.pats.filter((item) => item.userId === ctx.user.id).map(publicPat);
@@ -947,10 +941,14 @@ async function handleStatic(request, response, pathname) {
 
   try {
     const data = await readFile(filePath);
-    response.writeHead(200, {
+    const headers = {
       "Cache-Control": "no-store",
       "Content-Type": contentTypes[extname(filePath)] || "application/octet-stream",
-    });
+    };
+    if (isAppRoute && pathname === "/admin") {
+      headers["X-Robots-Tag"] = "noindex, nofollow";
+    }
+    response.writeHead(200, headers);
     response.end(data);
   } catch {
     textResponse(response, 404, "Not found");
