@@ -175,7 +175,6 @@ function publicPages() {
   return [
     { path: "/", key: "publicHome" },
     { path: "/features", key: "publicFeatures" },
-    { path: "/install", key: "publicInstall" },
     { path: "/docs", key: "publicDocs" },
     { path: "/faq", key: "publicFaq" },
     { path: "/compare", key: "publicCompare" },
@@ -682,8 +681,8 @@ function publicDocsContent(origin, locale) {
             ["GET", "/api/activity", "Recent user activity"],
           ],
           examplesTitle: "Examples",
-          listExample: `curl -H "Authorization: Bearer <PAT>" "$BASE_URL/api/entries"`,
-          codeExample: `curl -H "Authorization: Bearer <PAT>" "$BASE_URL/api/entries/{entryId}/code"`,
+          listExample: `curl -H "Authorization: Bearer <PAT>" "${origin}/api/entries"`,
+          codeExample: `curl -H "Authorization: Bearer <PAT>" "${origin}/api/entries/{entryId}/code"`,
         }
       : {
           sections: [
@@ -739,8 +738,8 @@ function publicDocsContent(origin, locale) {
             ["GET", "/api/activity", "最近用户活动"],
           ],
           examplesTitle: "调用示例",
-          listExample: `curl -H "Authorization: Bearer <PAT>" "$BASE_URL/api/entries"`,
-          codeExample: `curl -H "Authorization: Bearer <PAT>" "$BASE_URL/api/entries/{entryId}/code"`,
+          listExample: `curl -H "Authorization: Bearer <PAT>" "${origin}/api/entries"`,
+          codeExample: `curl -H "Authorization: Bearer <PAT>" "${origin}/api/entries/{entryId}/code"`,
         };
   return `
     <section class="public-docs">
@@ -775,6 +774,83 @@ function publicDocsContent(origin, locale) {
         <pre>${escapeHtml(docs.listExample)}</pre>
         <pre>${escapeHtml(docs.codeExample)}</pre>
       </article>
+    </section>
+  `;
+}
+
+function publicFeaturesContent(locale) {
+  const features =
+    locale === "en"
+      ? [
+          ["Code usage", "Search, sort, pin, show or hide codes, copy one-time passwords, and track the remaining period."],
+          ["Entry management", "Add and edit TOTP/HOTP entries, keep advanced fields collapsed, and organize entries by group."],
+          ["Import center", "Import otpauth text, Google migration URIs, QR images, Aegis, 2FAS, 2FAuth, Bitwarden readable JSON, LastPass CSV, Proton Pass readable exports, Raivo, and andOTP."],
+          ["Duplicate handling", "Preview imports first, mark invalid entries, and choose whether to skip, merge, or keep duplicates."],
+          ["Batch organization", "Select visible entries, move groups, pin or unpin selected entries, export selected entries, move entries to trash, restore, or permanently delete with confirmation."],
+          ["Export and backup", "Generate a QR code or otpauth URI for one entry, export selected entries, export all plain otpauth entries with warning, or download an encrypted backup."],
+          ["PAT API", "Create, rename, rotate, disable, and delete Personal Access Tokens for this user's entries and code endpoints."],
+          ["PWA and privacy", "Install as a PWA, use cached TOTP entries offline, hide codes by default, manually lock, auto-lock when idle, and review user activity logs."],
+        ]
+      : [
+          ["验证码使用", "搜索、排序、置顶、显示/隐藏验证码、一键复制，并查看剩余周期。"],
+          ["条目管理", "添加和编辑 TOTP/HOTP 条目，高级参数默认收起，并按分组整理。"],
+          ["导入中心", "支持 otpauth 文本、Google migration URI、二维码图片、Aegis、2FAS、2FAuth、Bitwarden 可读 JSON、LastPass CSV、Proton Pass 可读导出、Raivo 和 andOTP。"],
+          ["重复项处理", "导入前先预览，标记无效条目，并可选择跳过、合并或保留重复项。"],
+          ["批量整理", "选择当前列表条目，批量移动分组、置顶/取消置顶、导出所选、移入回收站、恢复或二次确认后永久删除。"],
+          ["导出与备份", "单条生成 QR 或 otpauth URI，导出所选条目，风险确认后导出明文 otpauth，或下载加密备份。"],
+          ["PAT API", "为当前用户创建、重命名、轮换、禁用和删除 PAT，并调用自己的条目和验证码接口。"],
+          ["PWA 与隐私", "可安装为 PWA，已缓存 TOTP 可离线出码；支持默认隐藏验证码、手动锁定、空闲自动锁定和用户活动日志。"],
+        ];
+  return `
+    <section class="public-docs public-feature-list">
+      ${features
+        .map(
+          ([title, body]) => `
+            <article class="public-doc-section">
+              <h2>${escapeHtml(title)}</h2>
+              <p>${escapeHtml(body)}</p>
+            </article>
+          `,
+        )
+        .join("")}
+    </section>
+  `;
+}
+
+function publicCompareContent(locale) {
+  const rows =
+    locale === "en"
+      ? [
+          ["Storage", "Local authenticator", "Usually stays on one device", "VaultOTP", "User account with encrypted server storage and optional encrypted local PWA cache"],
+          ["Migration", "Local authenticator", "Often depends on one QR export or manual entry", "VaultOTP", "Preview imports from common readable exports, QR images, and otpauth text"],
+          ["Organization", "Local authenticator", "Basic list and search", "VaultOTP", "Groups, sorting, pinning, trash, restore, and batch actions"],
+          ["API", "Local authenticator", "Usually no personal API", "VaultOTP", "PAT access to this user's own entries and current codes"],
+          ["Offline", "Local authenticator", "Works on the installed device", "VaultOTP", "PWA can keep cached TOTP entries usable offline on the current browser"],
+          ["Risk control", "Local authenticator", "Depends on app lock and device security", "VaultOTP", "Hide codes by default, manual lock, idle lock, export warnings, and activity logs"],
+        ]
+      : [
+          ["存储方式", "普通本地验证器", "通常只在单台设备本地保存", "VaultOTP", "用户账号 + 服务端加密存储，并可选当前浏览器 PWA 加密离线缓存"],
+          ["迁移导入", "普通本地验证器", "通常依赖单次二维码导出或手动录入", "VaultOTP", "可预览导入常见可读导出、二维码图片和 otpauth 文本"],
+          ["整理能力", "普通本地验证器", "基础列表和搜索", "VaultOTP", "分组、排序、置顶、回收站、恢复和批量操作"],
+          ["API 能力", "普通本地验证器", "通常没有个人 API", "VaultOTP", "通过 PAT 访问当前用户自己的条目和当前验证码"],
+          ["离线能力", "普通本地验证器", "在安装设备本地可用", "VaultOTP", "当前浏览器 PWA 可让已缓存 TOTP 断网继续出码"],
+          ["风险控制", "普通本地验证器", "依赖应用锁和设备安全", "VaultOTP", "默认隐藏验证码、手动锁定、空闲锁定、导出风险确认和活动日志"],
+        ];
+  return `
+    <section class="public-docs">
+      <div class="public-compare-table">
+        ${rows
+          .map(
+            ([topic, leftTitle, leftBody, rightTitle, rightBody]) => `
+              <article>
+                <h2>${escapeHtml(topic)}</h2>
+                <div><strong>${escapeHtml(leftTitle)}</strong><p>${escapeHtml(leftBody)}</p></div>
+                <div><strong>${escapeHtml(rightTitle)}</strong><p>${escapeHtml(rightBody)}</p></div>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
     </section>
   `;
 }
@@ -843,11 +919,15 @@ async function renderPublicPage(request, requestUrl, response, pathname) {
           ${
             page.key === "publicDocs"
               ? publicDocsContent(origin, locale)
+              : page.key === "publicFeatures"
+                ? publicFeaturesContent(locale)
+                : page.key === "publicCompare"
+                  ? publicCompareContent(locale)
               : `
                 ${page.key === "publicHome" ? publicTotpTool(locale, directSecret) : ""}
                 <section class="public-grid">
                   <article><h2>${escapeHtml(t("publicPointUserTitle"))}</h2><p>${escapeHtml(t("publicPointUserBody"))}</p></article>
-                  <article><h2>${escapeHtml(t("publicPointAdminTitle"))}</h2><p>${escapeHtml(t("publicPointAdminBody"))}</p></article>
+                  <article><h2>${escapeHtml(t("publicPointImportTitle"))}</h2><p>${escapeHtml(t("publicPointImportBody"))}</p></article>
                   <article><h2>${escapeHtml(t("publicPointApiTitle"))}</h2><p>${escapeHtml(t("publicPointApiBody"))}</p></article>
                 </section>
               `
