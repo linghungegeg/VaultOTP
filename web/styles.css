@@ -88,6 +88,11 @@ button:disabled {
   justify-content: space-between;
 }
 
+.entry-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .auth-panel > .brand-row {
   margin-bottom: 22px;
 }
@@ -302,6 +307,34 @@ textarea {
   padding: 18px;
 }
 
+.entry-toolbar {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
+  padding: 18px 18px 0;
+}
+
+.entry-toolbar .field {
+  margin-bottom: 0;
+}
+
+.entry-toolbar-actions {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.sort-field select {
+  min-width: 0;
+}
+
+.empty-state {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  padding: 16px 0 4px;
+}
+
 .entry {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -311,6 +344,10 @@ textarea {
 
 .entry.selected {
   border-color: var(--accent);
+}
+
+.entry.pinned {
+  border-color: #b48b14;
 }
 
 .entry-title {
@@ -332,6 +369,25 @@ textarea {
   font-weight: 700;
   letter-spacing: 2px;
   white-space: nowrap;
+}
+
+.otp-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 8px;
+  padding: 0;
+}
+
+.otp-toggle:hover {
+  border-color: transparent;
+}
+
+.otp-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .entry-meta {
@@ -1000,6 +1056,7 @@ textarea {
   .user-toolbar,
   .user-utility-grid,
   .user-form-section .form-grid,
+  .entry-toolbar,
   .advanced-grid {
     grid-template-columns: 1fr;
   }
@@ -1074,6 +1131,10 @@ textarea {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
     width: 100%;
+  }
+
+  .entry-toolbar-actions {
+    justify-content: flex-start;
   }
 
   .otp {

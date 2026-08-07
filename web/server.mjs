@@ -831,6 +831,7 @@ function publicEntry(entry) {
     period: entry.period,
     counter: entry.counter,
     groupId: entry.groupId,
+    pinned: Boolean(entry.pinned),
     note: entry.note || "",
     icon: entry.icon || "",
     createdAt: entry.createdAt,
@@ -979,6 +980,7 @@ function parseEntryBody(body) {
     period: Number(body.period || 30),
     counter: Number(body.counter || 0),
     groupId: String(body.groupId || "").trim(),
+    pinned: body.pinned === true || body.pinned === "true" || body.pinned === 1 || body.pinned === "1",
     note: String(body.note || "").trim(),
     icon: String(body.icon || "").trim(),
   };
@@ -1320,6 +1322,7 @@ async function handleApi(request, response, pathname) {
       period: payload.period,
       counter: payload.counter,
       groupId: payload.groupId || "default",
+      pinned: payload.pinned,
       note: payload.note,
       icon: payload.icon,
       createdAt: now(),
@@ -1351,6 +1354,7 @@ async function handleApi(request, response, pathname) {
     if (body.period != null) entry.period = payload.period;
     if (body.counter != null) entry.counter = payload.counter;
     if (body.groupId != null) entry.groupId = payload.groupId || "default";
+    if (body.pinned != null) entry.pinned = payload.pinned;
     if (body.note != null) entry.note = payload.note;
     if (body.icon != null) entry.icon = payload.icon;
     entry.updatedAt = now();
@@ -1417,6 +1421,7 @@ async function handleApi(request, response, pathname) {
         period: payload.period,
         counter: payload.counter,
         groupId: payload.groupId || "default",
+        pinned: payload.pinned,
         note: payload.note,
         icon: payload.icon,
         createdAt: now(),

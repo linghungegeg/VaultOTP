@@ -29,6 +29,7 @@
     adminReveals: {},
     editingId: null,
     groupFilter: "all",
+    sortMode: "recent",
     search: "",
     message: "",
     adminMessage: "",
@@ -47,6 +48,7 @@
     offlineSecrets: new Map(),
     offlineSecretIds: new Set(),
     pwaMessage: "",
+    revealedEntryIds: new Set(),
   };
   let qrScannerStream = null;
   let qrScannerTimer = null;
@@ -196,6 +198,7 @@
       period: entry.period,
       counter: entry.counter,
       groupId: entry.groupId,
+      pinned: Boolean(entry.pinned),
       note: entry.note || "",
       icon: entry.icon || "",
       createdAt: entry.createdAt,
@@ -307,14 +310,22 @@
     state.pats = [];
     state.patToken = "";
     state.editingId = null;
+    state.groupFilter = "all";
+    state.sortMode = "recent";
+    state.search = "";
     state.message = "";
     state.otpCodes = new Map();
     state.importOpen = false;
+    state.settingsOpen = false;
     state.scannerOpen = false;
+    state.importText = "";
+    state.importItems = [];
+    state.importMessage = "";
     stopQrScanner();
     state.offlineSecrets = new Map();
     state.offlineSecretIds = new Set();
     state.pwaMessage = "";
+    state.revealedEntryIds = new Set();
   }
 
   function clearAdminSession() {
@@ -976,10 +987,32 @@
 
   function filteredEntries() {
     const query = state.search.trim().toLowerCase();
-    return state.entries.filter((entry) => {
+    const entries = state.entries.filter((entry) => {
       const groupOk = state.groupFilter === "all" || entry.groupId === state.groupFilter;
       const text = `${entry.issuer} ${entry.account} ${entry.note} ${findGroupName(entry.groupId)}`.toLowerCase();
       return groupOk && (!query || text.includes(query));
+    });
+    return sortEntries(entries);
+  }
+
+  function sortEntries(entries) {
+    const compareText = (left, right) => String(left || "").localeCompare(String(right || ""), currentLocale === "zh-CN" ? "zh-Hans-CN" : "en", { sensitivity: "base" });
+    const selected = state.sortMode || "recent";
+    return [...entries].sort((left, right) => {
+      const pinnedDelta = Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
+      if (pinnedDelta) return pinnedDelta;
+      if (selected === "name") {
+        const issuerDelta = compareText(left.issuer, right.issuer);
+        return issuerDelta || compareText(left.account, right.account);
+      }
+      if (selected === "group") {
+        const groupDelta = compareText(findGroupName(left.groupId), findGroupName(right.groupId));
+        return groupDelta || compareText(left.issuer, right.issuer) || compareText(left.account, right.account);
+      }
+      if (selected === "created") {
+        return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+      }
+      return String(right.updatedAt || "").localeCompare(String(left.updatedAt || ""));
     });
   }
 
@@ -1121,8 +1154,9 @@
             </div>
           </header>
           <div class="user-main-stack">
+            ${listToolbar(entries.length)}
             <section class="entry-list">
-              ${entries.length ? entries.map(entryView).join("") : `<div class="empty">${t("noEntries")}</div>`}
+              ${entries.length ? entries.map(entryView).join("") : emptyEntryState()}
             </section>
             ${state.editingId !== null ? `<section class="user-form-section">${entryForm()}</section>` : ""}
             ${state.settingsOpen ? settingsPanel() : ""}
@@ -1130,6 +1164,49 @@
         </main>
       </div>
       ${state.importOpen ? importPanel() : ""}
+    `;
+  }
+
+  function listToolbar(count) {
+    return `
+      <section class="entry-toolbar">
+        <div class="field sort-field">
+          <label for="sort-mode">${t("sortBy")}</label>
+          <select id="sort-mode" data-action="sort-mode">
+            <option value="recent" ${state.sortMode === "recent" ? "selected" : ""}>${t("sortRecent")}</option>
+            <option value="name" ${state.sortMode === "name" ? "selected" : ""}>${t("sortName")}</option>
+            <option value="group" ${state.sortMode === "group" ? "selected" : ""}>${t("sortGroup")}</option>
+            <option value="created" ${state.sortMode === "created" ? "selected" : ""}>${t("sortCreated")}</option>
+          </select>
+        </div>
+        <div class="inline-actions entry-toolbar-actions">
+          <span class="muted">${t("entriesCount", { count })}</span>
+          <button class="ghost" data-action="clear-filters">${t("clearFilters")}</button>
+        </div>
+      </section>
+    `;
+  }
+
+  function emptyEntryState() {
+    const hasFilters = Boolean(state.search.trim()) || state.groupFilter !== "all";
+    if (hasFilters) {
+      return `
+        <div class="empty-state">
+          <div class="empty">${t("noMatchingEntries")}</div>
+          <div class="inline-actions empty-actions">
+            <button class="ghost" data-action="clear-filters">${t("clearFilters")}</button>
+          </div>
+        </div>
+      `;
+    }
+    return `
+      <div class="empty-state">
+        <div class="empty">${t("emptyEntries")}</div>
+        <div class="inline-actions empty-actions">
+          <button class="primary" data-action="open-import">${t("importEntries")}</button>
+          <button class="ghost" data-action="new-entry">${t("addEntry")}</button>
+        </div>
+      </div>
     `;
   }
 
@@ -1327,23 +1404,27 @@
 
   function entryView(entry) {
     const code = state.otpCodes.get(entry.id) || "------";
+    const revealed = state.revealedEntryIds.has(entry.id);
     return `
-      <article class="entry ${state.editingId === entry.id ? "selected" : ""}" data-entry-id="${entry.id}">
+      <article class="entry ${state.editingId === entry.id ? "selected" : ""} ${entry.pinned ? "pinned" : ""}" data-entry-id="${entry.id}">
         <div class="entry-main">
           <div class="entry-title">
             <strong>${escapeHtml(entry.issuer)}</strong>
             <span class="muted">${escapeHtml(entry.account)}</span>
           </div>
           <div class="entry-actions">
-            <span class="otp" data-otp-id="${entry.id}">${escapeHtml(code)}</span>
+            <button class="otp otp-toggle" type="button" data-action="toggle-code" data-id="${entry.id}" aria-label="${revealed ? t("hideCode") : t("showCode")}">
+              ${escapeHtml(revealed ? code : "******")}
+            </button>
             <button class="icon-button" data-action="copy" data-id="${entry.id}">${state.copiedId === entry.id ? t("copied") : t("copy")}</button>
+            <button class="icon-button" data-action="toggle-pin" data-id="${entry.id}">${entry.pinned ? t("unpin") : t("pin")}</button>
             ${entry.type === "HOTP" ? `<button class="icon-button" data-action="next-hotp" data-id="${entry.id}">${t("next")}</button>` : ""}
           </div>
         </div>
         <div class="entry-meta">
-          <span class="badge">${escapeHtml(entry.type)}</span>
           <span class="badge">${escapeHtml(findGroupName(entry.groupId))}</span>
           <span class="badge" data-period-id="${entry.id}">${escapeHtml(periodRemaining(entry))}</span>
+          ${entry.pinned ? `<span class="badge">${t("pinned")}</span>` : ""}
         </div>
       </article>
     `;
@@ -1897,6 +1978,22 @@
     }, 1200);
   }
 
+  function toggleCodeVisibility(id) {
+    const next = new Set(state.revealedEntryIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    state.revealedEntryIds = next;
+    render();
+  }
+
+  async function togglePinned(id) {
+    const entry = state.entries.find((item) => item.id === id);
+    if (!entry) return;
+    await api(`/api/entries/${id}`, { method: "PATCH", body: JSON.stringify({ pinned: !entry.pinned }) });
+    await loadUserData();
+    render();
+  }
+
   async function deleteAccount() {
     if (!confirm(t("deleteAccountConfirm"))) return;
     await api("/api/me", { method: "DELETE" });
@@ -2064,6 +2161,8 @@
     if (action === "delete-entry") await deleteEntry(id);
     if (action === "next-hotp") await nextHotp(id);
     if (action === "copy") await copyCode(id);
+    if (action === "toggle-code") toggleCodeVisibility(id);
+    if (action === "toggle-pin") await togglePinned(id);
     if (action === "logout") await logout();
     if (action === "delete-account") await deleteAccount();
     if (action === "open-import") {
@@ -2093,6 +2192,11 @@
     if (action === "parse-import") parseCurrentImportText();
     if (action === "import-all") await importPreviewItems(false);
     if (action === "import-selected") await importPreviewItems(true);
+    if (action === "clear-filters") {
+      state.search = "";
+      state.groupFilter = "all";
+      render();
+    }
     if (action === "admin-logout") await adminLogout();
     if (action === "admin-disable-user") await disableAdminUser(id);
     if (action === "admin-delete-user") await deleteAdminUser(id);
@@ -2113,6 +2217,11 @@
   });
 
   document.addEventListener("change", async (event) => {
+    if (event.target.dataset.action === "sort-mode") {
+      state.sortMode = event.target.value;
+      render();
+      return;
+    }
     if (event.target.dataset.action === "import-file" && event.target.files[0]) {
       await readImportFile(event.target.files[0]);
     }
