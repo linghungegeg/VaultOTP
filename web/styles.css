@@ -591,6 +591,38 @@ textarea {
   gap: 8px;
 }
 
+.export-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.transfer-log {
+  border-top: 1px solid var(--line);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+  max-height: 120px;
+  overflow: auto;
+  padding-top: 10px;
+}
+
+.qr-wrap {
+  display: grid;
+  place-items: center;
+}
+
+.qr-code {
+  height: min(280px, 70vw);
+  image-rendering: pixelated;
+  width: min(280px, 70vw);
+}
+
+.share-modal textarea {
+  min-height: 96px;
+  resize: vertical;
+  width: 100%;
+}
+
 .status-row {
   align-items: center;
   display: flex;

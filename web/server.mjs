@@ -840,6 +840,24 @@ function publicEntry(entry) {
   };
 }
 
+function otpAuthUri(entry, secret) {
+  const issuer = String(entry.issuer || "");
+  const account = String(entry.account || "");
+  const label = `${issuer ? `${issuer}:` : ""}${account}`;
+  const params = new URLSearchParams({
+    secret,
+    issuer,
+    algorithm: entry.algorithm || "SHA-1",
+    digits: String(entry.digits || 6),
+  });
+  if (entry.type === "HOTP") {
+    params.set("counter", String(entry.counter || 0));
+  } else {
+    params.set("period", String(entry.period || 30));
+  }
+  return `otpauth://${String(entry.type || "TOTP").toLowerCase()}/${encodeURIComponent(label)}?${params.toString()}`;
+}
+
 function publicGroup(group) {
   return {
     id: group.id,
@@ -1417,9 +1435,24 @@ async function handleApi(request, response, pathname, requestUrl) {
 
   if (pathname === "/api/export" && request.method === "GET") {
     if (!requireUser(ctx, response)) return;
-    const entries = store.entries.filter((item) => item.userId === ctx.user.id && !item.deletedAt).map(publicEntry);
+    const format = requestUrl.searchParams.get("format") || "encrypted";
+    const entryId = requestUrl.searchParams.get("entryId") || "";
+    const sourceEntries = store.entries.filter((item) => item.userId === ctx.user.id && !item.deletedAt && (!entryId || item.id === entryId));
+    if (entryId && !sourceEntries.length) {
+      jsonResponse(response, 404, { error: "not_found" });
+      return;
+    }
+    if (format === "otpauth") {
+      const lines = [];
+      for (const entry of sourceEntries) {
+        lines.push(otpAuthUri(entry, await decryptSecret(store, entry.secretEncrypted)));
+      }
+      typedTextResponse(response, 200, lines.join("\n"), "text/plain; charset=utf-8");
+      return;
+    }
+    const entries = sourceEntries.map(publicEntry);
     const groups = store.groups.filter((item) => item.userId === ctx.user.id).map(publicGroup);
-    jsonResponse(response, 200, { entries, groups });
+    jsonResponse(response, 200, { format: "vaultotp-encrypted-backup-v1", exportedAt: now(), entries, groups });
     return;
   }
 

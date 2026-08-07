@@ -55,6 +55,10 @@
     importItems: [],
     importMessage: "",
     importDuplicateMode: "skip",
+    exportMessage: "",
+    transferLog: [],
+    shareEntryId: "",
+    shareUri: "",
     online: navigator.onLine,
     serviceWorkerReady: false,
     offlineSecrets: new Map(),
@@ -113,6 +117,28 @@
       throw error;
     }
     return payload;
+  }
+
+  async function apiText(path, options = {}, token = state.userToken) {
+    const headers = { ...(options.headers || {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetch(path, { ...options, headers });
+    const text = await response.text();
+    if (!response.ok) {
+      const error = new Error(text || "request_failed");
+      error.status = response.status;
+      throw error;
+    }
+    return text;
+  }
+
+  function downloadText(filename, content, type = "text/plain;charset=utf-8") {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   async function bootstrap() {
@@ -345,6 +371,10 @@
     state.importItems = [];
     state.importMessage = "";
     state.importDuplicateMode = "skip";
+    state.exportMessage = "";
+    state.transferLog = [];
+    state.shareEntryId = "";
+    state.shareUri = "";
     stopQrScanner();
     state.offlineSecrets = new Map();
     state.offlineSecretIds = new Set();
@@ -409,6 +439,156 @@
       output += alphabet[parseInt(chunk.padEnd(5, "0"), 2)];
     }
     return output;
+  }
+
+  function qrSvg(text) {
+    const bytes = [...textEncoder.encode(text)];
+    const configs = [
+      null,
+      { data: 19, ec: 7, blocks: [19], align: [] },
+      { data: 34, ec: 10, blocks: [34], align: [6, 18] },
+      { data: 55, ec: 15, blocks: [55], align: [6, 22] },
+      { data: 80, ec: 20, blocks: [80], align: [6, 26] },
+      { data: 108, ec: 26, blocks: [108], align: [6, 30] },
+      { data: 136, ec: 18, blocks: [68, 68], align: [6, 34] },
+      { data: 156, ec: 20, blocks: [78, 78], align: [6, 22, 38] },
+      { data: 194, ec: 24, blocks: [97, 97], align: [6, 24, 42] },
+      { data: 232, ec: 30, blocks: [116, 116], align: [6, 26, 46] },
+    ];
+    const version = configs.findIndex((config) => config && bytes.length + 2 <= config.data);
+    if (version < 1) throw new Error("qr_too_large");
+    const config = configs[version];
+    const bits = [0, 1, 0, 0, ...bytes.length.toString(2).padStart(8, "0").split("").map(Number)];
+    for (const byte of bytes) bits.push(...byte.toString(2).padStart(8, "0").split("").map(Number));
+    bits.push(...Array(Math.min(4, config.data * 8 - bits.length)).fill(0));
+    while (bits.length % 8) bits.push(0);
+    const data = [];
+    for (let index = 0; index < bits.length; index += 8) data.push(parseInt(bits.slice(index, index + 8).join(""), 2));
+    for (let pad = 0; data.length < config.data; pad ^= 1) data.push(pad ? 0x11 : 0xec);
+
+    const exp = new Array(512);
+    const log = new Array(256);
+    let value = 1;
+    for (let index = 0; index < 255; index += 1) {
+      exp[index] = value;
+      log[value] = index;
+      value <<= 1;
+      if (value & 0x100) value ^= 0x11d;
+    }
+    for (let index = 255; index < 512; index += 1) exp[index] = exp[index - 255];
+    const mul = (a, b) => (a && b ? exp[log[a] + log[b]] : 0);
+    const generator = [1];
+    for (let degree = 0; degree < config.ec; degree += 1) {
+      generator.push(0);
+      for (let index = generator.length - 1; index > 0; index -= 1) {
+        generator[index] = generator[index - 1] ^ mul(generator[index], exp[degree]);
+      }
+      generator[0] = mul(generator[0], exp[degree]);
+    }
+    function errorCorrection(block) {
+      const result = Array(config.ec).fill(0);
+      for (const byte of block) {
+        const factor = byte ^ result.shift();
+        result.push(0);
+        for (let index = 0; index < config.ec; index += 1) result[index] ^= mul(generator[index], factor);
+      }
+      return result;
+    }
+    const dataBlocks = [];
+    let offset = 0;
+    for (const length of config.blocks) {
+      dataBlocks.push(data.slice(offset, offset + length));
+      offset += length;
+    }
+    const ecBlocks = dataBlocks.map(errorCorrection);
+    const codewords = [];
+    for (let index = 0; index < Math.max(...config.blocks); index += 1) {
+      for (const block of dataBlocks) if (index < block.length) codewords.push(block[index]);
+    }
+    for (let index = 0; index < config.ec; index += 1) {
+      for (const block of ecBlocks) codewords.push(block[index]);
+    }
+
+    const size = version * 4 + 17;
+    const modules = Array.from({ length: size }, () => Array(size).fill(false));
+    const reserved = Array.from({ length: size }, () => Array(size).fill(false));
+    const setModule = (row, col, dark, reserve = true) => {
+      if (row < 0 || col < 0 || row >= size || col >= size) return;
+      modules[row][col] = Boolean(dark);
+      if (reserve) reserved[row][col] = true;
+    };
+    function finder(row, col) {
+      for (let y = -1; y <= 7; y += 1) {
+        for (let x = -1; x <= 7; x += 1) {
+          const border = x === -1 || x === 7 || y === -1 || y === 7;
+          const dark = !border && (x === 0 || x === 6 || y === 0 || y === 6 || (x >= 2 && x <= 4 && y >= 2 && y <= 4));
+          setModule(row + y, col + x, dark);
+        }
+      }
+    }
+    finder(0, 0);
+    finder(0, size - 7);
+    finder(size - 7, 0);
+    for (let index = 8; index < size - 8; index += 1) {
+      setModule(6, index, index % 2 === 0);
+      setModule(index, 6, index % 2 === 0);
+    }
+    for (const row of config.align) {
+      for (const col of config.align) {
+        if ((row < 9 && col < 9) || (row < 9 && col > size - 10) || (row > size - 10 && col < 9)) continue;
+        for (let y = -2; y <= 2; y += 1) {
+          for (let x = -2; x <= 2; x += 1) setModule(row + y, col + x, Math.max(Math.abs(x), Math.abs(y)) !== 1);
+        }
+      }
+    }
+    setModule(version * 4 + 9, 8, true);
+    for (let index = 0; index < 9; index += 1) {
+      if (index !== 6) {
+        reserved[8][index] = true;
+        reserved[index][8] = true;
+      }
+    }
+    for (let index = 0; index < 8; index += 1) {
+      reserved[8][size - 1 - index] = true;
+      reserved[size - 1 - index][8] = true;
+    }
+
+    const dataBits = codewords.flatMap((byte) => byte.toString(2).padStart(8, "0").split("").map(Number));
+    let bitIndex = 0;
+    let upward = true;
+    for (let col = size - 1; col > 0; col -= 2) {
+      if (col === 6) col -= 1;
+      for (let step = 0; step < size; step += 1) {
+        const row = upward ? size - 1 - step : step;
+        for (const currentCol of [col, col - 1]) {
+          if (reserved[row][currentCol]) continue;
+          const bit = bitIndex < dataBits.length ? dataBits[bitIndex] : 0;
+          setModule(row, currentCol, Boolean(bit) !== ((row + currentCol) % 2 === 0), false);
+          bitIndex += 1;
+        }
+      }
+      upward = !upward;
+    }
+
+    let format = 0b01000;
+    let bch = format << 10;
+    for (let bit = 14; bit >= 10; bit -= 1) if ((bch >>> bit) & 1) bch ^= 0x537 << (bit - 10);
+    format = ((format << 10) | bch) ^ 0x5412;
+    const formatBits = Array.from({ length: 15 }, (_, index) => (format >>> index) & 1);
+    const first = [[8, 0], [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 7], [8, 8], [7, 8], [5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8]];
+    const second = [[size - 1, 8], [size - 2, 8], [size - 3, 8], [size - 4, 8], [size - 5, 8], [size - 6, 8], [size - 7, 8], [8, size - 8], [8, size - 7], [8, size - 6], [8, size - 5], [8, size - 4], [8, size - 3], [8, size - 2], [8, size - 1]];
+    formatBits.forEach((bit, index) => {
+      setModule(first[index][0], first[index][1], bit);
+      setModule(second[index][0], second[index][1], bit);
+    });
+
+    let paths = "";
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size; col += 1) {
+        if (modules[row][col]) paths += `M${col + 4},${row + 4}h1v1h-1z`;
+      }
+    }
+    return `<svg class="qr-code" viewBox="0 0 ${size + 8} ${size + 8}" xmlns="http://www.w3.org/2000/svg" role="img"><rect width="100%" height="100%" fill="#fff"/><path d="${paths}" fill="#000"/></svg>`;
   }
 
   function normalizeAlgorithm(value) {
@@ -1271,6 +1451,7 @@
         </main>
       </div>
       ${state.importOpen ? importPanel() : ""}
+      ${state.shareUri ? sharePanel() : ""}
     `;
   }
 
@@ -1370,8 +1551,27 @@
           ${accountSecurityPanel()}
           ${pwaPanel()}
           ${patPanel()}
+          ${exportPanel()}
         </div>
       </section>
+    `;
+  }
+
+  function exportPanel() {
+    const count = activeEntries().length;
+    return `
+      <div class="sidebar-section export-panel">
+        <div class="section-title">${t("exportBackup")}</div>
+        <div class="muted">${t("exportScope", { count })}</div>
+        <div class="inline-actions settings-actions">
+          <button class="ghost" data-action="export-encrypted" ${count ? "" : "disabled"}>${t("encryptedBackup")}</button>
+          <button class="danger" data-action="export-otpauth" ${count ? "" : "disabled"}>${t("plainExport")}</button>
+        </div>
+        ${state.exportMessage ? `<div class="error">${escapeHtml(state.exportMessage)}</div>` : ""}
+        <div class="transfer-log">
+          ${state.transferLog.length ? state.transferLog.map((item) => `<div>${escapeHtml(item)}</div>`).join("") : `<div class="empty">${t("transferLogEmpty")}</div>`}
+        </div>
+      </div>
     `;
   }
 
@@ -1597,6 +1797,8 @@
                       ${escapeHtml(revealed ? code : "******")}
                     </button>
                     <button class="icon-button" data-action="copy" data-id="${entry.id}" data-copy-id="${entry.id}">${state.copiedId === entry.id ? t("copied") : t("copy")}</button>
+                    <button class="icon-button" data-action="show-entry-qr" data-id="${entry.id}">${t("qrCode")}</button>
+                    <button class="icon-button" data-action="export-entry-uri" data-id="${entry.id}">${t("exportUri")}</button>
                     <button class="icon-button" data-action="toggle-pin" data-id="${entry.id}">${entry.pinned ? t("unpin") : t("pin")}</button>
                     ${entry.type === "HOTP" ? `<button class="icon-button" data-action="next-hotp" data-id="${entry.id}">${t("next")}</button>` : ""}
                   `
@@ -1788,6 +1990,31 @@
           ${importPreview()}
         </div>
       </section>
+    `;
+  }
+
+  function sharePanel() {
+    let qr = "";
+    try {
+      qr = qrSvg(state.shareUri);
+    } catch {
+      qr = `<div class="empty">${t("qrTooLarge")}</div>`;
+    }
+    return `
+      <div class="modal-backdrop">
+        <section class="modal share-modal">
+          <div class="panel-title">
+            <h2>${t("qrCode")}</h2>
+            <button class="ghost" data-action="close-share">${t("close")}</button>
+          </div>
+          <div class="qr-wrap">${qr}</div>
+          <textarea readonly>${escapeHtml(state.shareUri)}</textarea>
+          <div class="inline-actions">
+            <button class="ghost" data-action="copy-share-uri">${t("copy")}</button>
+            <button class="ghost" data-action="download-entry-uri">${t("downloadUri")}</button>
+          </div>
+        </section>
+      </div>
     `;
   }
 
@@ -2133,6 +2360,70 @@
       render();
     } catch {
       state.importMessage = t("serverError");
+      render();
+    }
+  }
+
+  function recordTransfer(message) {
+    state.transferLog = [`${new Date().toLocaleString()} ${message}`, ...state.transferLog].slice(0, 6);
+  }
+
+  async function exportEncryptedBackup() {
+    try {
+      const payload = await api("/api/export");
+      const content = JSON.stringify(payload, null, 2);
+      downloadText(`vaultotp-encrypted-backup-${Date.now()}.json`, content, "application/json;charset=utf-8");
+      state.exportMessage = t("encryptedBackupDone");
+      recordTransfer(t("encryptedBackupDone"));
+      render();
+    } catch {
+      state.exportMessage = t("serverError");
+      render();
+    }
+  }
+
+  async function exportOtpAuthBatch() {
+    if (!confirm(t("plainExportConfirm"))) return;
+    try {
+      const content = await apiText("/api/export?format=otpauth");
+      downloadText(`vaultotp-otpauth-${Date.now()}.txt`, content);
+      state.exportMessage = t("plainExportDone");
+      recordTransfer(t("plainExportDone"));
+      render();
+    } catch {
+      state.exportMessage = t("serverError");
+      render();
+    }
+  }
+
+  async function fetchEntryUri(id) {
+    return apiText(`/api/export?format=otpauth&entryId=${encodeURIComponent(id)}`);
+  }
+
+  async function showEntryQr(id) {
+    if (!confirm(t("plainExportConfirm"))) return;
+    try {
+      state.shareEntryId = id;
+      state.shareUri = await fetchEntryUri(id);
+      state.exportMessage = "";
+      recordTransfer(t("entryQrShown"));
+      render();
+    } catch {
+      state.exportMessage = t("serverError");
+      render();
+    }
+  }
+
+  async function exportEntryUri(id) {
+    if (!confirm(t("plainExportConfirm"))) return;
+    try {
+      const content = await fetchEntryUri(id);
+      downloadText(`vaultotp-entry-${id}.txt`, content);
+      state.exportMessage = t("plainExportDone");
+      recordTransfer(t("plainExportDone"));
+      render();
+    } catch {
+      state.exportMessage = t("serverError");
       render();
     }
   }
@@ -2523,6 +2814,25 @@
     if (action === "restore-entry") await restoreEntry(id);
     if (action === "next-hotp") await nextHotp(id);
     if (action === "copy") await copyCode(id);
+    if (action === "show-entry-qr") await showEntryQr(id);
+    if (action === "export-entry-uri") await exportEntryUri(id);
+    if (action === "export-encrypted") await exportEncryptedBackup();
+    if (action === "export-otpauth") await exportOtpAuthBatch();
+    if (action === "close-share") {
+      state.shareEntryId = "";
+      state.shareUri = "";
+      render();
+    }
+    if (action === "copy-share-uri") {
+      await navigator.clipboard.writeText(state.shareUri);
+      recordTransfer(t("copied"));
+      render();
+    }
+    if (action === "download-entry-uri") {
+      downloadText(`vaultotp-entry-${state.shareEntryId}.txt`, state.shareUri);
+      recordTransfer(t("plainExportDone"));
+      render();
+    }
     if (action === "toggle-code") toggleCodeVisibility(id);
     if (action === "toggle-pin") await togglePinned(id);
     if (action === "logout") await logout();
