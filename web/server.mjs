@@ -625,6 +625,160 @@ function publicTotpTool(locale, directSecret) {
   `;
 }
 
+function publicDocsContent(origin, locale) {
+  const docs =
+    locale === "en"
+      ? {
+          sections: [
+            {
+              title: "User workflow",
+              body: [
+                "Open the app, create a user account, then add or import 2FA entries.",
+                "The main page is for finding, showing, copying, pinning, sorting, and organizing your own codes.",
+                "Settings contains account safety, display preferences, import/export, PAT, PWA/offline, batch organization, and activity logs.",
+              ],
+            },
+            {
+              title: "Import and export",
+              body: [
+                "Import supports otpauth text, Google Authenticator migration URIs, QR images, Aegis, 2FAS, 2FAuth, Bitwarden readable JSON, LastPass CSV, Proton Pass readable exports, Raivo, and andOTP.",
+                "Imports are previewed first. Duplicate or invalid entries are marked before they are saved.",
+                "Encrypted backup export keeps encrypted entry data. Plain otpauth export requires an explicit warning confirmation.",
+              ],
+            },
+            {
+              title: "PAT API",
+              body: [
+                "Create a Personal Access Token in Settings > PAT settings.",
+                "PAT calls only operate on the current user's entries and codes.",
+                "Code responses include the current code, period, remaining time, digits, type, and server time. Plain secrets are not returned.",
+              ],
+            },
+            {
+              title: "PWA and offline use",
+              body: [
+                "The web app can be installed as a PWA from the browser.",
+                "After you add or import TOTP entries while online, cached TOTP entries can generate codes locally when offline.",
+                "Offline cache is device-local and encrypted by the browser. Server data remains the source of truth when online.",
+              ],
+            },
+            {
+              title: "Privacy notes",
+              body: [
+                "Passwords are stored as salted PBKDF2 hashes on the server.",
+                "Saved secrets are stored encrypted by the server key pair.",
+                "Activity logs record operation metadata, not plain secrets, PAT values, or OTP codes.",
+              ],
+            },
+          ],
+          endpoints: [
+            ["GET", "/api/me", "Current user identity"],
+            ["GET", "/api/groups", "List groups"],
+            ["GET", "/api/entries", "List entries"],
+            ["GET", "/api/entries/{entryId}/code", "Get the current code"],
+            ["GET", "/api/export", "Encrypted backup"],
+            ["GET", "/api/export?format=otpauth", "Plain otpauth export"],
+            ["POST", "/api/import", "Import encrypted preview entries"],
+            ["GET", "/api/activity", "Recent user activity"],
+          ],
+          examplesTitle: "Examples",
+          listExample: `curl -H "Authorization: Bearer <PAT>" ${origin}/api/entries`,
+          codeExample: `curl -H "Authorization: Bearer <PAT>" ${origin}/api/entries/{entryId}/code`,
+        }
+      : {
+          sections: [
+            {
+              title: "用户使用流程",
+              body: [
+                "打开用户端，注册普通用户账号，然后添加或导入 2FA 条目。",
+                "首页用于查找、显示、复制、置顶、排序和整理自己的验证码。",
+                "设置里包含账户安全、显示偏好、导入导出、PAT、PWA/离线、批量整理和活动日志。",
+              ],
+            },
+            {
+              title: "导入与导出",
+              body: [
+                "导入支持 otpauth 文本、Google Authenticator migration URI、二维码图片、Aegis、2FAS、2FAuth、Bitwarden 可读 JSON、LastPass CSV、Proton Pass 可读导出、Raivo 和 andOTP。",
+                "导入前会先预览，重复项和无效项会先标记，不会默认直接保存。",
+                "加密备份导出保留加密条目数据；明文 otpauth 导出会先弹出风险确认。",
+              ],
+            },
+            {
+              title: "PAT API",
+              body: [
+                "在设置 > PAT 设置里创建 Personal Access Token。",
+                "PAT 调用只作用于当前用户自己的条目和验证码。",
+                "验证码接口只返回当前 code、周期、剩余时间、位数、类型和服务器时间，不返回明文 Secret。",
+              ],
+            },
+            {
+              title: "PWA 与离线使用",
+              body: [
+                "可以从浏览器把用户端安装为 PWA。",
+                "在线添加或导入 TOTP 后，已缓存的 TOTP 条目断网时可以在本机继续出码。",
+                "离线缓存只在当前设备浏览器内保存并加密；在线时仍以服务端数据为准。",
+              ],
+            },
+            {
+              title: "隐私说明",
+              body: [
+                "登录密码在服务端以带盐 PBKDF2 hash 保存。",
+                "保存的 Secret 使用服务端密钥对加密存储。",
+                "活动日志只记录操作元数据，不记录明文 Secret、PAT 值或 OTP 验证码。",
+              ],
+            },
+          ],
+          endpoints: [
+            ["GET", "/api/me", "当前用户身份"],
+            ["GET", "/api/groups", "分组列表"],
+            ["GET", "/api/entries", "条目列表"],
+            ["GET", "/api/entries/{entryId}/code", "获取当前验证码"],
+            ["GET", "/api/export", "加密备份"],
+            ["GET", "/api/export?format=otpauth", "明文 otpauth 导出"],
+            ["POST", "/api/import", "导入加密预览条目"],
+            ["GET", "/api/activity", "最近用户活动"],
+          ],
+          examplesTitle: "调用示例",
+          listExample: `curl -H "Authorization: Bearer <PAT>" ${origin}/api/entries`,
+          codeExample: `curl -H "Authorization: Bearer <PAT>" ${origin}/api/entries/{entryId}/code`,
+        };
+  return `
+    <section class="public-docs">
+      ${docs.sections
+        .map(
+          (section) => `
+            <article class="public-doc-section">
+              <h2>${escapeHtml(section.title)}</h2>
+              ${section.body.map((item) => `<p>${escapeHtml(item)}</p>`).join("")}
+            </article>
+          `,
+        )
+        .join("")}
+      <article class="public-doc-section">
+        <h2>PAT API</h2>
+        <div class="public-api-table">
+          ${docs.endpoints
+            .map(
+              ([method, path, desc]) => `
+                <div>
+                  <span class="badge">${escapeHtml(method)}</span>
+                  <code>${escapeHtml(path)}</code>
+                  <span>${escapeHtml(desc)}</span>
+                </div>
+              `,
+            )
+            .join("")}
+        </div>
+      </article>
+      <article class="public-doc-section">
+        <h2>${escapeHtml(docs.examplesTitle)}</h2>
+        <pre>${escapeHtml(docs.listExample)}</pre>
+        <pre>${escapeHtml(docs.codeExample)}</pre>
+      </article>
+    </section>
+  `;
+}
+
 async function renderPublicPage(request, requestUrl, response, pathname) {
   const page = publicPageConfig(pathname);
   if (!page) return false;
@@ -686,12 +840,18 @@ async function renderPublicPage(request, requestUrl, response, pathname) {
               <a class="ghost public-link" href="/docs${locale === "en" ? "?lang=en" : ""}">${escapeHtml(t("publicReadDocs"))}</a>
             </div>
           </section>
-          ${page.key === "publicHome" ? publicTotpTool(locale, directSecret) : ""}
-          <section class="public-grid">
-            <article><h2>${escapeHtml(t("publicPointUserTitle"))}</h2><p>${escapeHtml(t("publicPointUserBody"))}</p></article>
-            <article><h2>${escapeHtml(t("publicPointAdminTitle"))}</h2><p>${escapeHtml(t("publicPointAdminBody"))}</p></article>
-            <article><h2>${escapeHtml(t("publicPointApiTitle"))}</h2><p>${escapeHtml(t("publicPointApiBody"))}</p></article>
-          </section>
+          ${
+            page.key === "publicDocs"
+              ? publicDocsContent(origin, locale)
+              : `
+                ${page.key === "publicHome" ? publicTotpTool(locale, directSecret) : ""}
+                <section class="public-grid">
+                  <article><h2>${escapeHtml(t("publicPointUserTitle"))}</h2><p>${escapeHtml(t("publicPointUserBody"))}</p></article>
+                  <article><h2>${escapeHtml(t("publicPointAdminTitle"))}</h2><p>${escapeHtml(t("publicPointAdminBody"))}</p></article>
+                  <article><h2>${escapeHtml(t("publicPointApiTitle"))}</h2><p>${escapeHtml(t("publicPointApiBody"))}</p></article>
+                </section>
+              `
+          }
         </main>
       </body>
     </html>

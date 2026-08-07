@@ -1188,6 +1188,64 @@ textarea {
   margin: 0;
 }
 
+.public-docs {
+  display: grid;
+  gap: 14px;
+}
+
+.public-doc-section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.public-doc-section h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.public-doc-section p {
+  color: var(--muted);
+  line-height: 1.7;
+  margin: 0;
+}
+
+.public-doc-section pre {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 10px;
+}
+
+.public-api-table {
+  display: grid;
+  gap: 8px;
+}
+
+.public-api-table > div {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  font-size: 13px;
+  gap: 8px;
+  grid-template-columns: auto minmax(190px, 0.7fr) minmax(0, 1fr);
+  padding: 8px;
+}
+
+.public-api-table code,
+.public-api-table span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .modal-backdrop {
   align-items: center;
   background: rgb(15 23 42 / 45%);
@@ -1330,6 +1388,11 @@ textarea {
   .detail-grid,
   .admin-entry-values,
   .public-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .public-api-table > div {
+    align-items: flex-start;
     grid-template-columns: 1fr;
   }
 
