@@ -33,6 +33,7 @@
     message: "",
     adminMessage: "",
     otpCodes: new Map(),
+    otpRefreshVersion: 0,
     copiedId: "",
     renderScheduled: false,
     importOpen: false,
@@ -336,6 +337,7 @@
   function base32ToBytes(secret) {
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     const normalized = normalizeSecret(secret);
+    if (normalized.length < 8) throw new Error("invalid base32");
     let bits = "";
     for (const char of normalized) {
       const value = alphabet.indexOf(char);
@@ -429,7 +431,7 @@
 
   function entryDuplicateKey(entry) {
     const period = entry.type === "TOTP" ? Number(entry.period || 30) : "";
-    return [entry.type, entry.issuer, entry.account, entry.algorithm, entry.digits, period]
+    return [entry.type, entry.issuer, entry.account, entry.secret, entry.algorithm, entry.digits, period]
       .map((part) => String(part || "").toLowerCase())
       .join("|");
   }
@@ -524,6 +526,18 @@
       .map((item) => parseGoogleOtpParameter(item.value));
   }
 
+  function parseImportedOtpValue(value, raw, source) {
+    const candidate = String(value || "").trim();
+    if (candidate.toLowerCase().startsWith("otpauth://")) {
+      try {
+        return parseOtpAuthUri(candidate, source);
+      } catch {
+        // Keep the original value so the preview can mark it invalid.
+      }
+    }
+    return normalizeImportedEntry({ ...raw, secret: candidate }, source);
+  }
+
   function parseAegisJson(json) {
     if (!json?.db?.entries || !Array.isArray(json.db.entries)) return [];
     return json.db.entries.map((item) =>
@@ -542,6 +556,25 @@
         "Aegis",
       ),
     );
+  }
+
+  function parseBitwardenJson(json) {
+    if (!Array.isArray(json?.items)) return [];
+    return json.items.flatMap((item) => {
+      const value = item?.login?.totp;
+      if (!value) return [];
+      return [
+        parseImportedOtpValue(
+          value,
+          {
+            issuer: item.name,
+            account: item.login?.username || item.name,
+            note: item.notes,
+          },
+          "Bitwarden",
+        ),
+      ];
+    });
   }
 
   function parseTwoFasJson(json) {
@@ -578,10 +611,111 @@
     });
   }
 
+  function parseRaivoJson(json) {
+    const values = Array.isArray(json) ? json : [];
+    if (
+      !values.some(
+        (item) => item && typeof item === "object" && ("kind" in item || "timer" in item || "iconType" in item),
+      )
+    )
+      return [];
+    return values
+      .filter(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          item.secret &&
+          ("kind" in item || "timer" in item || "iconType" in item),
+      )
+      .map((item) =>
+        normalizeImportedEntry(
+          {
+            issuer: item.issuer,
+            account: item.account,
+            secret: item.secret,
+            type: item.kind,
+            algorithm: item.algorithm,
+            digits: item.digits,
+            period: item.timer,
+            counter: item.counter,
+            icon: item.iconValue,
+          },
+          "Raivo",
+        ),
+      );
+  }
+
+  function parseAndOtpJson(json) {
+    const values = Array.isArray(json) ? json : [];
+    if (
+      !values.some(
+        (item) => item && typeof item === "object" && "label" in item && ("tags" in item || "algorithm" in item),
+      )
+    )
+      return [];
+    return values
+      .filter(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          item.secret &&
+          "label" in item &&
+          ("tags" in item || "algorithm" in item),
+      )
+      .map((item) =>
+        normalizeImportedEntry(
+          {
+            issuer: item.issuer,
+            account: item.label,
+            secret: item.secret,
+            type: item.type,
+            algorithm: item.algorithm,
+            digits: item.digits,
+            period: item.period,
+            counter: item.counter,
+          },
+          "andOTP",
+        ),
+      );
+  }
+
+  function parseProtonJson(json) {
+    const values = [
+      ...(Array.isArray(json) ? json : []),
+      ...(Array.isArray(json?.items) ? json.items : []),
+      ...(Array.isArray(json?.vaults) ? json.vaults.flatMap((vault) => (Array.isArray(vault?.items) ? vault.items : [])) : []),
+    ];
+    return values.flatMap((item) => {
+      const value = item?.totp || item?.otp || item?.login?.totp || item?.content?.totp || item?.data?.totp;
+      if (!value) return [];
+      return [
+        parseImportedOtpValue(
+          value,
+          {
+            issuer: item.issuer || item.name || item.title,
+            account: item.account || item.username || item.login?.username || item.name || item.title,
+            note: item.note || item.notes,
+            algorithm: item.algorithm || item.algo,
+            digits: item.digits,
+            period: item.period,
+            counter: item.counter,
+            type: item.type || item.kind,
+          },
+          "Proton Pass",
+        ),
+      ];
+    });
+  }
+
   function parseGenericJson(json) {
     const values = Array.isArray(json) ? json : [];
     return values
       .filter((item) => item && typeof item === "object")
+      .filter(
+        (item) =>
+          !("kind" in item || "timer" in item || "iconType" in item) &&
+          !("label" in item && ("tags" in item || "algorithm" in item)),
+      )
       .flatMap((item) => {
         if (item.otpauth || item.uri || item.legacy_uri) {
           try {
@@ -594,9 +728,110 @@
       });
   }
 
+  function parseCsvRows(text) {
+    const rows = [];
+    let row = [];
+    let value = "";
+    let quoted = false;
+    for (let index = 0; index < text.length; index += 1) {
+      const char = text[index];
+      if (char === '"') {
+        if (quoted && text[index + 1] === '"') {
+          value += '"';
+          index += 1;
+        } else {
+          quoted = !quoted;
+        }
+      } else if (char === "," && !quoted) {
+        row.push(value);
+        value = "";
+      } else if ((char === "\n" || char === "\r") && !quoted) {
+        if (char === "\r" && text[index + 1] === "\n") index += 1;
+        row.push(value);
+        if (row.some((item) => item.trim())) rows.push(row);
+        row = [];
+        value = "";
+      } else {
+        value += char;
+      }
+    }
+    row.push(value);
+    if (row.some((item) => item.trim())) rows.push(row);
+    return rows;
+  }
+
+  function csvValue(row, indexes, ...names) {
+    for (const name of names) {
+      const index = indexes.get(name);
+      if (index !== undefined) return String(row[index] || "").trim();
+    }
+    return "";
+  }
+
+  function extractCsvOtp(value, allowRaw = false) {
+    const text = String(value || "").trim();
+    const uri = text.match(/otpauth:\/\/[^\s]+/i)?.[0];
+    if (uri) return uri;
+    const labeled = text.match(/(?:totp|otp|secret|key)\s*[:=]\s*([A-Z2-7][A-Z2-7\s-]{7,})/i)?.[1];
+    return labeled || (allowRaw ? text : "");
+  }
+
+  function parseCsvImport(text) {
+    const rows = parseCsvRows(text);
+    if (rows.length < 2) return [];
+    const headers = rows[0].map((item) => item.trim().toLowerCase());
+    const indexes = new Map(headers.map((name, index) => [name, index]));
+    const hasLastPassHeaders = ["url", "username", "password", "extra", "name", "grouping", "fav"].every((name) =>
+      indexes.has(name),
+    );
+    const otpHeader = ["totp", "otp", "one-time password", "otp secret"].find((name) => indexes.has(name));
+    const hasProtonHeaders = indexes.has("name") && (Boolean(otpHeader) || indexes.has("urls") || indexes.has("url"));
+    if (!hasLastPassHeaders && !hasProtonHeaders) return [];
+    const source = hasLastPassHeaders ? "LastPass" : "Proton Pass";
+    return rows.slice(1).flatMap((row) => {
+      const explicitOtp = csvValue(row, indexes, otpHeader);
+      const extra = csvValue(row, indexes, "extra", "note", "notes");
+      const value = explicitOtp
+        ? extractCsvOtp(explicitOtp, true)
+        : extractCsvOtp(extra) || extractCsvOtp(csvValue(row, indexes, "url", "urls"));
+      if (!value) return [];
+      return [
+        parseImportedOtpValue(
+          value,
+          {
+            issuer: csvValue(row, indexes, "issuer", "service", "name"),
+            account: csvValue(row, indexes, "username", "account", "email", "name"),
+            note: explicitOtp ? extra : "",
+          },
+          source,
+        ),
+      ];
+    });
+  }
+
   function parseJsonImport(text) {
     const json = JSON.parse(text);
-    return [...parseAegisJson(json), ...parseTwoFasJson(json), ...parseTwoFAuthJson(json), ...parseGenericJson(json)];
+    const parsers = [
+      parseAegisJson,
+      parseBitwardenJson,
+      parseTwoFasJson,
+      parseTwoFAuthJson,
+      parseProtonJson,
+      parseRaivoJson,
+      parseAndOtpJson,
+      parseGenericJson,
+    ];
+    const entries = [];
+    const seen = new Set();
+    for (const parser of parsers) {
+      for (const entry of parser(json)) {
+        const key = entryDuplicateKey(entry);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        entries.push(entry);
+      }
+    }
+    return entries;
   }
 
   function parseImportPayload(text) {
@@ -605,6 +840,8 @@
     const results = [];
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
       results.push(...parseJsonImport(trimmed));
+    } else {
+      results.push(...parseCsvImport(trimmed));
     }
     for (const line of trimmed.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
       if (line.startsWith("otpauth://")) results.push(parseOtpAuthUri(line));
@@ -687,21 +924,29 @@
       renderOtpCodes();
       return;
     }
+    const refreshVersion = ++state.otpRefreshVersion;
     const codes = new Map();
-    for (const entry of state.entries) {
-      try {
-        if (state.userToken) {
-          const payload = await api(`/api/entries/${entry.id}/code`);
-          codes.set(entry.id, payload.code);
-        } else {
-          codes.set(entry.id, (await offlineCode(entry)) || "------");
-        }
-      } catch {
-        codes.set(entry.id, (await offlineCode(entry)) || "------");
-      }
+    const concurrency = state.userToken ? 3 : state.entries.length;
+    for (let index = 0; index < state.entries.length; index += concurrency) {
+      await Promise.all(
+        state.entries.slice(index, index + concurrency).map(async (entry) => {
+          try {
+            if (state.userToken) {
+              const payload = await api(`/api/entries/${entry.id}/code`);
+              codes.set(entry.id, payload.code);
+            } else {
+              codes.set(entry.id, (await offlineCode(entry)) || "------");
+            }
+          } catch {
+            codes.set(entry.id, (await offlineCode(entry)) || "------");
+          }
+        }),
+      );
     }
-    state.otpCodes = codes;
-    renderOtpCodes();
+    if (refreshVersion === state.otpRefreshVersion) {
+      state.otpCodes = codes;
+      renderOtpCodes();
+    }
   }
 
   function renderOtpCodes() {
@@ -1188,7 +1433,7 @@
           </div>
           <div class="field">
             <label>${t("chooseFile")}</label>
-            <input type="file" data-action="import-file" accept=".txt,.json,.2fas,.aegis" />
+            <input type="file" data-action="import-file" accept=".txt,.json,.csv,.2fas,.aegis" />
           </div>
           <div class="field">
             <label>${t("importSource")}</label>
