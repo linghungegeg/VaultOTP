@@ -471,6 +471,110 @@ textarea {
   padding: 8px;
 }
 
+.site-settings-form {
+  display: grid;
+  gap: 8px;
+}
+
+.checkbox-field {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.checkbox-field input {
+  min-height: auto;
+  width: auto;
+}
+
+.public-page {
+  display: grid;
+  gap: 28px;
+  margin: 0 auto;
+  max-width: 1040px;
+  padding: 24px;
+}
+
+.public-nav {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  min-height: 54px;
+}
+
+.public-nav span {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.public-nav a,
+.public-link {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.public-link {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: inline-flex;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.public-link.primary {
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.public-hero {
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+  padding: 36px 0;
+}
+
+.public-hero h1 {
+  font-size: 34px;
+  line-height: 1.18;
+  margin: 0;
+}
+
+.public-hero p {
+  font-size: 16px;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.public-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.public-grid article {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.public-grid h2 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+
+.public-grid p {
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
 .modal-backdrop {
   align-items: center;
   background: rgb(15 23 42 / 45%);
@@ -552,8 +656,19 @@ textarea {
 
   .admin-summary,
   .detail-grid,
-  .admin-entry-values {
+  .admin-entry-values,
+  .public-grid {
     grid-template-columns: 1fr;
+  }
+
+  .public-nav {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-bottom: 12px;
+  }
+
+  .public-hero h1 {
+    font-size: 28px;
   }
 
   .detail-item {

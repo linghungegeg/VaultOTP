@@ -23,6 +23,7 @@
     patToken: "",
     adminUsers: [],
     adminDetail: null,
+    siteSettings: null,
     adminSelectedUserEmail: "",
     adminAudit: [],
     adminReveals: {},
@@ -159,6 +160,7 @@
     state.admin = null;
     state.adminUsers = [];
     state.adminDetail = null;
+    state.siteSettings = null;
     state.adminSelectedUserEmail = "";
     state.adminAudit = [];
     state.adminReveals = {};
@@ -466,12 +468,14 @@
   }
 
   async function loadAdminData() {
-    const [users, audit] = await Promise.all([
+    const [users, audit, settings] = await Promise.all([
       api("/api/admin/users", {}, state.adminToken),
       api("/api/admin/audit", {}, state.adminToken),
+      api("/api/admin/site-settings", {}, state.adminToken),
     ]);
     state.adminUsers = users.items;
     state.adminAudit = audit.items;
+    state.siteSettings = settings.settings;
     const selected = state.adminUsers.find((item) => item.email === state.adminSelectedUserEmail) || state.adminUsers[0] || null;
     if (selected) {
       await loadAdminUser(selected.email, false);
@@ -771,6 +775,7 @@
               ${state.adminAudit.length ? state.adminAudit.slice(0, 12).map(adminAuditRow).join("") : `<div class="empty">${t("adminAuditTitle")}</div>`}
             </div>
           </div>
+          ${siteSettingsPanel()}
         </aside>
         <main class="admin-main">
           <header class="topbar admin-topbar">
@@ -786,6 +791,50 @@
             ${selected && state.adminDetail ? adminDetailPanel() : `<div class="empty">${t("adminNoSelection")}</div>`}
           </section>
         </main>
+      </div>
+    `;
+  }
+
+  function siteSettingsPanel() {
+    const settings = state.siteSettings || {};
+    return `
+      <div class="sidebar-section">
+        <div class="section-title">${t("siteSettingsTitle")}</div>
+        <form id="site-settings-form" class="site-settings-form">
+          <div class="field">
+            <label>${t("siteName")}</label>
+            <input name="siteName" value="${escapeHtml(settings.siteName || "")}" />
+          </div>
+          <div class="field">
+            <label>${t("seoTitle")}</label>
+            <input name="seoTitle" value="${escapeHtml(settings.seoTitle || "")}" />
+          </div>
+          <div class="field">
+            <label>${t("seoKeywords")}</label>
+            <input name="seoKeywords" value="${escapeHtml(settings.seoKeywords || "")}" />
+          </div>
+          <div class="field">
+            <label>${t("seoDescription")}</label>
+            <textarea name="seoDescription">${escapeHtml(settings.seoDescription || "")}</textarea>
+          </div>
+          <div class="field">
+            <label>${t("logo")}</label>
+            <input name="logo" value="${escapeHtml(settings.logo || "")}" />
+          </div>
+          <div class="field">
+            <label>${t("ogTitle")}</label>
+            <input name="ogTitle" value="${escapeHtml(settings.ogTitle || "")}" />
+          </div>
+          <div class="field">
+            <label>${t("ogDescription")}</label>
+            <textarea name="ogDescription">${escapeHtml(settings.ogDescription || "")}</textarea>
+          </div>
+          <label class="checkbox-field">
+            <input type="checkbox" name="allowPublicIndexing" ${settings.allowPublicIndexing === false ? "" : "checked"} />
+            <span>${t("allowPublicIndexing")}</span>
+          </label>
+          <button class="ghost" type="submit">${t("saveSiteSettings")}</button>
+        </form>
       </div>
     `;
   }
@@ -1108,6 +1157,35 @@
     }
   }
 
+  async function handleSiteSettingsSave(form) {
+    const data = new FormData(form);
+    try {
+      const payload = await api(
+        "/api/admin/site-settings",
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            siteName: String(data.get("siteName") || "").trim(),
+            seoTitle: String(data.get("seoTitle") || "").trim(),
+            seoKeywords: String(data.get("seoKeywords") || "").trim(),
+            seoDescription: String(data.get("seoDescription") || "").trim(),
+            logo: String(data.get("logo") || "").trim(),
+            ogTitle: String(data.get("ogTitle") || "").trim(),
+            ogDescription: String(data.get("ogDescription") || "").trim(),
+            allowPublicIndexing: data.get("allowPublicIndexing") === "on",
+          }),
+        },
+        state.adminToken,
+      );
+      state.siteSettings = payload.settings;
+      state.adminMessage = t("siteSettingsSaved");
+      render();
+    } catch {
+      state.adminMessage = t("serverError");
+      render();
+    }
+  }
+
   async function handleEntrySave(form) {
     const data = new FormData(form);
     const id = String(data.get("id") || "");
@@ -1333,6 +1411,7 @@
     if (formId === "admin-auth-form") await handleAdminAuth(event.target);
     if (formId === "entry-form") await handleEntrySave(event.target);
     if (formId === "pat-form") await handlePatCreate(event.target);
+    if (formId === "site-settings-form") await handleSiteSettingsSave(event.target);
   });
 
   document.addEventListener("click", async (event) => {

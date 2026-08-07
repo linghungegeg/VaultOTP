@@ -3,10 +3,12 @@ import { readFile, rename, writeFile, mkdir } from "node:fs/promises";
 import { extname, join, normalize, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { webcrypto, createHash, createHmac } from "node:crypto";
+import { runInNewContext } from "node:vm";
 
 const { subtle } = webcrypto;
 const getRandomValues = webcrypto.getRandomValues.bind(webcrypto);
 const root = dirname(fileURLToPath(import.meta.url));
+const i18nPath = normalize(join(root, "..", "extension", "i18n.js"));
 const storePath = normalize(process.env.VAULTOTP_STORE_PATH || join(root, "..", "vaultotp-store.json"));
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
@@ -18,6 +20,7 @@ const contentTypes = {
 };
 
 let storeCache = null;
+let i18nCache = null;
 
 function jsonResponse(response, status, payload) {
   response.writeHead(status, {
@@ -34,6 +37,14 @@ function textResponse(response, status, body) {
   response.writeHead(status, {
     "Cache-Control": "no-store",
     "Content-Type": "text/plain; charset=utf-8",
+  });
+  response.end(body);
+}
+
+function typedTextResponse(response, status, body, contentType) {
+  response.writeHead(status, {
+    "Cache-Control": "no-store",
+    "Content-Type": contentType,
   });
   response.end(body);
 }
@@ -93,7 +104,25 @@ function defaultStore() {
     groups: [],
     entries: [],
     auditLogs: [],
+    siteSettings: defaultSiteSettings(),
   };
+}
+
+function defaultSiteSettings() {
+  return {
+    siteName: "VaultOTP",
+    seoTitle: "VaultOTP - Self-hosted 2FA manager",
+    seoKeywords: "VaultOTP, 2FA, TOTP, HOTP, self-hosted authenticator",
+    seoDescription: "VaultOTP is a self-hosted 2FA management platform for teams that need a web app, admin controls, API access, and browser extension workflows.",
+    logo: "",
+    ogTitle: "VaultOTP",
+    ogDescription: "A self-hosted 2FA manager with user vaults, admin review, PAT API access, imports, and browser extension support.",
+    allowPublicIndexing: true,
+  };
+}
+
+function siteSettings(store) {
+  return { ...defaultSiteSettings(), ...(store.siteSettings || {}) };
 }
 
 async function loadStore() {
@@ -115,6 +144,164 @@ async function saveStore(store) {
   await writeFile(tmpPath, JSON.stringify(store, null, 2), "utf8");
   await rename(tmpPath, storePath);
   storeCache = store;
+}
+
+async function loadI18n() {
+  if (i18nCache) return i18nCache;
+  const source = await readFile(i18nPath, "utf8");
+  const context = {
+    window: {},
+    document: { documentElement: {} },
+    navigator: { language: "zh-CN" },
+    localStorage: { getItem: () => null, setItem: () => undefined },
+  };
+  runInNewContext(source, context, { filename: i18nPath });
+  i18nCache = context.window.VaultOtpI18n;
+  return i18nCache;
+}
+
+function requestOrigin(request) {
+  const protocol = request.headers["x-forwarded-proto"] || "http";
+  return `${protocol}://${request.headers.host || `${host}:${port}`}`;
+}
+
+function pageLocale(requestUrl) {
+  return requestUrl.searchParams.get("lang") === "en" ? "en" : "zh-CN";
+}
+
+function publicPages() {
+  return [
+    { path: "/", key: "publicHome" },
+    { path: "/features", key: "publicFeatures" },
+    { path: "/install", key: "publicInstall" },
+    { path: "/docs", key: "publicDocs" },
+    { path: "/faq", key: "publicFaq" },
+    { path: "/compare", key: "publicCompare" },
+  ];
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function safeJsonForScript(value) {
+  return JSON.stringify(value).replaceAll("<", "\\u003c");
+}
+
+function publicPageConfig(pathname) {
+  return publicPages().find((page) => page.path === pathname) || null;
+}
+
+function publicPageLinks(origin, locale) {
+  return publicPages()
+    .map((page) => `<a href="${origin}${page.path}${locale === "en" ? "?lang=en" : ""}">{{${page.key}}}</a>`)
+    .join("");
+}
+
+async function renderPublicPage(request, requestUrl, response, pathname) {
+  const page = publicPageConfig(pathname);
+  if (!page) return false;
+  const store = await loadStore();
+  const settings = siteSettings(store);
+  const i18n = await loadI18n();
+  const locale = pageLocale(requestUrl);
+  const t = (key, params = {}) => i18n.t(key, locale, params);
+  const origin = requestOrigin(request);
+  const title = settings.seoTitle || settings.siteName;
+  const description = settings.seoDescription;
+  const canonical = `${origin}${pathname}`;
+  const robots = settings.allowPublicIndexing ? "index, follow" : "noindex, nofollow";
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: settings.siteName,
+    applicationCategory: "SecurityApplication",
+    operatingSystem: "Web",
+    description,
+    url: canonical,
+  };
+  const links = publicPageLinks(origin, locale).replace(/\{\{([^}]+)\}\}/g, (_, key) => escapeHtml(t(key)));
+  const body = `
+    <!doctype html>
+    <html lang="${locale}">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="robots" content="${robots}" />
+        <meta name="keywords" content="${escapeHtml(settings.seoKeywords)}" />
+        <meta name="description" content="${escapeHtml(description)}" />
+        <meta property="og:title" content="${escapeHtml(settings.ogTitle || title)}" />
+        <meta property="og:description" content="${escapeHtml(settings.ogDescription || description)}" />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="${escapeHtml(canonical)}" />
+        <link rel="canonical" href="${escapeHtml(canonical)}" />
+        <link rel="stylesheet" href="/styles.css" />
+        <title>${escapeHtml(title)}</title>
+        <script type="application/ld+json">${safeJsonForScript(schema)}</script>
+      </head>
+      <body>
+        <main class="public-page">
+          <nav class="public-nav">
+            <strong>${escapeHtml(settings.siteName)}</strong>
+            <span>${links}</span>
+            <span class="language-switch">
+              <a href="${pathname}">中文</a>
+              <a href="${pathname}?lang=en">English</a>
+            </span>
+          </nav>
+          <section class="public-hero">
+            <p class="muted">${escapeHtml(t("publicEyebrow"))}</p>
+            <h1>${escapeHtml(t(`${page.key}Title`, { siteName: settings.siteName }))}</h1>
+            <p>${escapeHtml(t(`${page.key}Body`, { siteName: settings.siteName }))}</p>
+            <div class="inline-actions">
+              <a class="primary public-link" href="/app">${escapeHtml(t("publicOpenApp"))}</a>
+              <a class="ghost public-link" href="/docs${locale === "en" ? "?lang=en" : ""}">${escapeHtml(t("publicReadDocs"))}</a>
+            </div>
+          </section>
+          <section class="public-grid">
+            <article><h2>${escapeHtml(t("publicPointUserTitle"))}</h2><p>${escapeHtml(t("publicPointUserBody"))}</p></article>
+            <article><h2>${escapeHtml(t("publicPointAdminTitle"))}</h2><p>${escapeHtml(t("publicPointAdminBody"))}</p></article>
+            <article><h2>${escapeHtml(t("publicPointApiTitle"))}</h2><p>${escapeHtml(t("publicPointApiBody"))}</p></article>
+          </section>
+        </main>
+      </body>
+    </html>
+  `;
+  typedTextResponse(response, 200, body, "text/html; charset=utf-8");
+  return true;
+}
+
+async function handlePublicText(request, response, pathname) {
+  const store = await loadStore();
+  const settings = siteSettings(store);
+  const origin = requestOrigin(request);
+  if (pathname === "/robots.txt") {
+    const sitemap = `Sitemap: ${origin}/sitemap.xml`;
+    const body = settings.allowPublicIndexing
+      ? `User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api\n${sitemap}\n`
+      : `User-agent: *\nDisallow: /\n${sitemap}\n`;
+    typedTextResponse(response, 200, body, "text/plain; charset=utf-8");
+    return true;
+  }
+  if (pathname === "/sitemap.xml") {
+    const urls = settings.allowPublicIndexing
+      ? publicPages().map((page) => `<url><loc>${origin}${page.path}</loc></url>`).join("")
+      : "";
+    typedTextResponse(response, 200, `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`, "application/xml; charset=utf-8");
+    return true;
+  }
+  if (pathname === "/llms.txt") {
+    const i18n = await loadI18n();
+    const t = (key, params = {}) => i18n.t(key, "en", params);
+    typedTextResponse(response, 200, `# ${settings.siteName}\n\n${t("publicLlmsSummary", { siteName: settings.siteName })}\n\n- App: ${origin}/app\n- Docs: ${origin}/docs\n- API: ${origin}/api/me\n`, "text/plain; charset=utf-8");
+    return true;
+  }
+  return false;
 }
 
 async function ensureCrypto(store) {
@@ -926,6 +1113,31 @@ async function handleApi(request, response, pathname) {
     return;
   }
 
+  if (pathname === "/api/admin/site-settings" && request.method === "GET") {
+    if (!requireAdmin(ctx, response)) return;
+    jsonResponse(response, 200, { settings: siteSettings(store) });
+    return;
+  }
+
+  if (pathname === "/api/admin/site-settings" && request.method === "PATCH") {
+    if (!requireAdmin(ctx, response)) return;
+    const body = await readJsonBody(request);
+    store.siteSettings = {
+      ...siteSettings(store),
+      siteName: String(body.siteName || "VaultOTP").trim(),
+      seoTitle: String(body.seoTitle || "").trim(),
+      seoKeywords: String(body.seoKeywords || "").trim(),
+      seoDescription: String(body.seoDescription || "").trim(),
+      logo: String(body.logo || "").trim(),
+      ogTitle: String(body.ogTitle || "").trim(),
+      ogDescription: String(body.ogDescription || "").trim(),
+      allowPublicIndexing: body.allowPublicIndexing !== false,
+    };
+    await saveStore(store);
+    jsonResponse(response, 200, { settings: siteSettings(store) });
+    return;
+  }
+
   jsonResponse(response, 404, { error: "not_found" });
 }
 
@@ -968,6 +1180,8 @@ const server = createServer(async (request, response) => {
     }
     return;
   }
+  if (await handlePublicText(request, response, pathname)) return;
+  if (await renderPublicPage(request, url, response, pathname)) return;
   await handleStatic(request, response, pathname);
 });
 
