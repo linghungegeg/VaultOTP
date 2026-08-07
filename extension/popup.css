@@ -103,6 +103,22 @@ h2 {
   gap: 8px;
 }
 
+.language-switch {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.language-switch button {
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.language-switch button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .button-row,
 .entry-actions {
   gap: 8px;

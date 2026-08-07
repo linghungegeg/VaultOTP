@@ -1,126 +1,15 @@
 (() => {
-  const dictionary = {
-    login: "登录",
-    register: "注册",
-    email: "邮箱",
-    password: "密码",
-    confirmPassword: "确认密码",
-    createAccount: "创建账号",
-    loginAction: "登录",
-    logout: "退出",
-    deleteAccount: "删除账号",
-    deleteAccountConfirm: "确定删除当前账号和服务端保存项吗？",
-    addEntry: "添加条目",
-    editEntry: "编辑条目",
-    save: "保存",
-    cancel: "取消",
-    delete: "删除",
-    deleteEntryConfirm: "确定删除这个 2FA 条目吗？",
-    search: "搜索",
-    allGroups: "全部",
-    issuer: "服务",
-    account: "账号",
-    secret: "Secret",
-    type: "类型",
-    algorithm: "算法",
-    digits: "位数",
-    period: "周期",
-    counter: "计数器",
-    group: "分组",
-    newGroup: "新分组",
-    note: "备注",
-    icon: "图标",
-    copy: "复制",
-    copied: "已复制",
-    next: "下一个",
-    entries: "条目",
-    noEntries: "没有匹配的 2FA 条目",
-    required: "请填写必要字段",
-    invalidEmail: "邮箱格式不正确",
-    passwordMismatch: "两次密码不一致",
-    userExists: "账号已存在",
-    invalidLogin: "邮箱或密码不正确",
-    invalidSecret: "Secret 不是有效 Base32",
-    serverError: "请求失败，请稍后重试",
-    authTitle: "VaultOTP",
-    authSubtitle: "Web 用户端",
-    currentUser: "当前用户",
-    serverBacked: "服务端 vault",
-    importEntries: "导入",
-    importTitle: "导入 2FA",
-    importSource: "导入内容",
-    importHint: "粘贴 otpauth URI、Google migration URI，或 Aegis / 2FAS / 2FAuth JSON。",
-    parseImport: "解析",
-    importSelected: "导入选中",
-    importAll: "导入全部",
-    close: "关闭",
-    preview: "预览",
-    valid: "可导入",
-    duplicate: "重复",
-    invalid: "无效",
-    source: "来源",
-    importEmpty: "没有可预览的导入条目",
-    importRequired: "请先粘贴或选择导入内容",
-    importDone: "导入完成",
-    importNoSelection: "没有选中的可导入条目",
-    chooseFile: "选择文件",
-    importFileUnsupported: "无法读取文件内容",
-    reasonDuplicate: "已有相同条目",
-    reasonInvalidSecret: "Secret 无效",
-    reasonMissingFields: "缺少必要字段",
-    reasonUnsupported: "未识别的导入格式",
-    adminEntry: "Admin 后台",
-    userEntry: "用户端",
-    adminTitle: "VaultOTP Admin",
-    setupAdmin: "创建唯一 Admin",
-    adminLogin: "Admin 登录",
-    adminExists: "Admin 已存在",
-    adminRequired: "请先创建 Admin",
-    disabledAccount: "账号已禁用",
-    accountStatus: "账号状态",
-    active: "启用",
-    disabled: "禁用",
-    adminDeleteUserConfirm: "确定删除这个用户和服务端保存项吗？",
-    adminDisableUserConfirm: "确定禁用这个用户吗？",
-    noUsers: "暂无普通用户",
-    savedItems: "保存项",
-    viewSecret: "查看 Secret",
-    viewOtp: "查看验证码",
-    hiddenByDefault: "默认隐藏",
-    lastLogin: "上次登录",
-    createdAt: "创建时间",
-    updatedAt: "更新时间",
-    adminLogout: "退出后台",
-    adminBackToUser: "返回用户端",
-    adminCreateHint: "先创建唯一 Admin，再管理用户。",
-    adminLoginHint: "使用 Admin 账号进入独立后台。",
-    adminSetupTitle: "创建 Admin",
-    adminLoginTitle: "Admin 登录",
-    adminUsersTitle: "用户管理",
-    adminAuditTitle: "审计记录",
-    adminViewSecret: "查看 Secret",
-    adminViewOtp: "查看验证码",
-    adminDisable: "禁用",
-    adminDelete: "删除",
-    adminNoSelection: "请选择一个用户",
-    loading: "加载中",
-    pats: "Personal Access Token",
-    patName: "Token 名称",
-    createPat: "创建 Token",
-    renamePat: "重命名",
-    deletePat: "删除 Token",
-    deletePatConfirm: "确定删除这个 Token 吗？",
-    oneTimeToken: "只显示一次",
-  };
-
   const textEncoder = new TextEncoder();
   const textDecoder = new TextDecoder();
   const app = document.getElementById("app");
-  const t = (key) => dictionary[key] || key;
+  const i18n = window.VaultOtpI18n;
+  let currentLocale = i18n.getInitialLocale();
+  const t = (key, params = {}) => i18n.t(key, currentLocale, params);
   const uid = () => `${Date.now().toString(36)}${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
 
   const state = {
     route: "app",
+    locale: currentLocale,
     authMode: "login",
     hasAdmin: null,
     secretPublicKey: null,
@@ -150,6 +39,7 @@
     importItems: [],
     importMessage: "",
   };
+  i18n.setLocale(currentLocale);
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -158,6 +48,21 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  function languageSwitch() {
+    return `
+      <div class="language-switch" aria-label="${t("language")}">
+        <button type="button" class="${state.locale === "zh-CN" ? "active" : ""}" data-locale="zh-CN">${t("localeZh")}</button>
+        <button type="button" class="${state.locale === "en" ? "active" : ""}" data-locale="en">${t("localeEn")}</button>
+      </div>
+    `;
+  }
+
+  function changeLocale(locale) {
+    currentLocale = i18n.setLocale(locale);
+    state.locale = currentLocale;
+    render();
   }
 
   function normalizeEmail(value) {
@@ -615,7 +520,7 @@
   }
 
   function findGroupName(groupId) {
-    return (state.groups.find((group) => group.id === groupId) || {}).name || "Default";
+    return (state.groups.find((group) => group.id === groupId) || {}).name || t("defaultGroup");
   }
 
   function filteredEntries() {
@@ -669,6 +574,7 @@
             <div class="brand">${t("authTitle")}</div>
             <div class="muted">${t("authSubtitle")}</div>
           </div>
+          ${languageSwitch()}
         </div>
         <div class="tabs">
           <button class="tab ${state.authMode === "login" ? "active" : ""}" data-auth-mode="login">${t("login")}</button>
@@ -711,7 +617,10 @@
             <div class="brand">${t("adminTitle")}</div>
             <div class="muted">${setupMode ? t("adminCreateHint") : t("adminLoginHint")}</div>
           </div>
-          <button class="ghost" type="button" data-route="app">${t("adminBackToUser")}</button>
+          <div class="inline-actions">
+            ${languageSwitch()}
+            <button class="ghost" type="button" data-route="app">${t("adminBackToUser")}</button>
+          </div>
         </div>
         <div class="tabs">
           <button class="tab active" disabled>${setupMode ? t("adminSetupTitle") : t("adminLoginTitle")}</button>
@@ -748,9 +657,10 @@
         <aside class="sidebar">
           <div class="brand-row">
             <div>
-              <div class="brand">VaultOTP</div>
+              <div class="brand">${t("authTitle")}</div>
               <div class="muted">${t("serverBacked")}</div>
             </div>
+            ${languageSwitch()}
           </div>
           <div class="field">
             <label for="search">${t("search")}</label>
@@ -831,7 +741,10 @@
               <div class="brand">${t("adminTitle")}</div>
               <div class="muted">${escapeHtml(state.admin?.email || "")}</div>
             </div>
-            <button class="ghost" type="button" data-route="app">${t("adminBackToUser")}</button>
+            <div class="inline-actions">
+              ${languageSwitch()}
+              <button class="ghost" type="button" data-route="app">${t("adminBackToUser")}</button>
+            </div>
           </div>
           <div class="sidebar-section">
             <div class="section-title">${t("adminUsersTitle")}</div>
@@ -843,7 +756,7 @@
                         (user) => `
                           <button class="admin-user-item ${state.adminSelectedUserEmail === user.email ? "active" : ""}" data-admin-user="${escapeHtml(user.email)}">
                             <span>${escapeHtml(user.email)}</span>
-                            <span class="badge ${user.status === "disabled" ? "disabled-badge" : ""}">${escapeHtml(user.status || "active")}</span>
+                            <span class="badge ${user.status === "disabled" ? "disabled-badge" : ""}">${escapeHtml(t(user.status || "active"))}</span>
                           </button>
                         `,
                       )
@@ -1083,7 +996,7 @@
           </div>
         </div>
         <div class="detail-grid">
-          <div class="detail-item"><span class="muted">${t("accountStatus")}</span><strong>${escapeHtml(user.status || "active")}</strong></div>
+          <div class="detail-item"><span class="muted">${t("accountStatus")}</span><strong>${escapeHtml(t(user.status || "active"))}</strong></div>
           <div class="detail-item"><span class="muted">${t("createdAt")}</span><strong>${escapeHtml(user.createdAt || "-")}</strong></div>
           <div class="detail-item"><span class="muted">${t("lastLogin")}</span><strong>${escapeHtml(user.lastLoginAt || "-")}</strong></div>
           <div class="detail-item"><span class="muted">${t("savedItems")}</span><strong>${entries.length}</strong></div>
@@ -1097,7 +1010,7 @@
   function adminEntryRow(userEmail, entry) {
     const reveal = state.adminReveals[entry.id] || {};
     const groups = state.adminDetail?.groups || [];
-    const groupName = (groups.find((group) => group.id === entry.groupId) || {}).name || "Default";
+    const groupName = (groups.find((group) => group.id === entry.groupId) || {}).name || t("defaultGroup");
     return `
       <article class="admin-entry-row">
         <div class="admin-entry-top">
@@ -1425,6 +1338,10 @@
   document.addEventListener("click", async (event) => {
     const target = event.target.closest("button, [data-entry-id]");
     if (!target) return;
+    if (target.dataset.locale) {
+      changeLocale(target.dataset.locale);
+      return;
+    }
     if (target.dataset.route) {
       goToRoute(target.dataset.route);
       return;

@@ -931,10 +931,12 @@ async function handleApi(request, response, pathname) {
 
 async function handleStatic(request, response, pathname) {
   const isAppRoute = pathname === "/app" || pathname === "/admin";
+  const isSharedI18n = pathname === "/extension/i18n.js";
   const requestedPath = pathname === "/" || isAppRoute ? "index.html" : pathname.slice(1);
-  const filePath = normalize(join(root, requestedPath));
+  const filePath = normalize(isSharedI18n ? join(root, "..", "extension", "i18n.js") : join(root, requestedPath));
+  const allowedRoot = normalize(isSharedI18n ? join(root, "..", "extension") : root);
 
-  if (!filePath.startsWith(normalize(root))) {
+  if (!filePath.startsWith(allowedRoot)) {
     textResponse(response, 403, "Forbidden");
     return;
   }

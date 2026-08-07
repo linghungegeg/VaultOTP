@@ -10,15 +10,19 @@
     <main class="popup">
       <section class="section">
         <div class="title-row">
-          <h1>VaultOTP</h1>
-          <button id="save-settings" type="button">保存</button>
+          <h1 data-i18n="authTitle"></h1>
+          <div class="language-switch" data-i18n-aria-label="language">
+            <button type="button" data-locale="zh-CN" data-i18n="localeZh"></button>
+            <button type="button" data-locale="en" data-i18n="localeEn"></button>
+          </div>
+          <button id="save-settings" type="button" data-i18n="save"></button>
         </div>
         <label class="field">
-          <span>服务地址</span>
-          <input id="service-url" autocomplete="off" placeholder="https://vault.example.com" />
+          <span data-i18n="serviceUrl"></span>
+          <input id="service-url" autocomplete="off" data-i18n-placeholder="serviceUrlPlaceholder" />
         </label>
         <label class="field">
-          <span>Personal Access Token</span>
+          <span data-i18n="pat"></span>
           <input id="pat" autocomplete="off" type="password" />
         </label>
         <div id="message" class="message"></div>
@@ -26,26 +30,27 @@
 
       <section class="section">
         <div class="title-row">
-          <h2>条目</h2>
-          <button id="refresh-entries" type="button">刷新</button>
+          <h2 data-i18n="entries"></h2>
+          <button id="refresh-entries" type="button" data-i18n="refresh"></button>
         </div>
-        <input id="search" autocomplete="off" placeholder="搜索服务或账号" />
+        <input id="search" autocomplete="off" data-i18n-placeholder="searchPlaceholder" />
         <div id="entries" class="entry-list"></div>
       </section>
 
       <section class="section">
         <div class="title-row">
-          <h2>导入</h2>
-          <button id="scan-page" type="button">检测当前页</button>
+          <h2 data-i18n="importEntries"></h2>
+          <button id="scan-page" type="button" data-i18n="scanPage"></button>
         </div>
-        <textarea id="import-text" placeholder="粘贴 otpauth:// URI，一行一个"></textarea>
+        <textarea id="import-text" data-i18n-placeholder="importOtpAuthPlaceholder"></textarea>
         <div class="button-row">
-          <button id="preview-import" type="button">预览</button>
-          <button id="import-valid" type="button">导入可用项</button>
+          <button id="preview-import" type="button" data-i18n="previewImport"></button>
+          <button id="import-valid" type="button" data-i18n="importValid"></button>
         </div>
         <div id="import-preview" class="import-preview"></div>
       </section>
     </main>
+    <script src="./i18n.js"></script>
     <script src="./popup.js"></script>
   </body>
 </html>
