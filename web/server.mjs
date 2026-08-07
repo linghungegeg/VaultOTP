@@ -834,6 +834,7 @@ function publicEntry(entry) {
     pinned: Boolean(entry.pinned),
     note: entry.note || "",
     icon: entry.icon || "",
+    deletedAt: entry.deletedAt || null,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
   };
@@ -1002,7 +1003,7 @@ async function ensureDefaultGroup(store, userId) {
   return group;
 }
 
-async function handleApi(request, response, pathname) {
+async function handleApi(request, response, pathname, requestUrl) {
   const store = await loadStore();
   await ensureCrypto(store);
   if (request.method === "OPTIONS") {
@@ -1295,7 +1296,10 @@ async function handleApi(request, response, pathname) {
 
   if (pathname === "/api/entries" && request.method === "GET") {
     if (!requireUser(ctx, response)) return;
-    const entries = store.entries.filter((item) => item.userId === ctx.user.id).map(publicEntry);
+    const includeDeleted = requestUrl.searchParams.get("includeDeleted") === "1";
+    const entries = store.entries
+      .filter((item) => item.userId === ctx.user.id && (includeDeleted || !item.deletedAt))
+      .map(publicEntry);
     jsonResponse(response, 200, { items: entries });
     return;
   }
@@ -1338,7 +1342,7 @@ async function handleApi(request, response, pathname) {
     if (!requireUser(ctx, response)) return;
     const entryId = pathname.split("/").pop();
     const body = await readJsonBody(request);
-    const entry = store.entries.find((item) => item.id === entryId && item.userId === ctx.user.id);
+    const entry = store.entries.find((item) => item.id === entryId && item.userId === ctx.user.id && !item.deletedAt);
     if (!entry) {
       jsonResponse(response, 404, { error: "not_found" });
       return;
@@ -1366,21 +1370,42 @@ async function handleApi(request, response, pathname) {
   if (/^\/api\/entries\/[^/]+$/.test(pathname) && request.method === "DELETE") {
     if (!requireUser(ctx, response)) return;
     const entryId = pathname.split("/").pop();
-    const exists = store.entries.some((item) => item.id === entryId && item.userId === ctx.user.id);
-    if (!exists) {
+    const permanent = requestUrl.searchParams.get("permanent") === "1";
+    const entry = store.entries.find((item) => item.id === entryId && item.userId === ctx.user.id);
+    if (!entry) {
       jsonResponse(response, 404, { error: "not_found" });
       return;
     }
-    store.entries = store.entries.filter((item) => !(item.id === entryId && item.userId === ctx.user.id));
+    if (permanent) {
+      store.entries = store.entries.filter((item) => !(item.id === entryId && item.userId === ctx.user.id));
+    } else {
+      entry.deletedAt = entry.deletedAt || now();
+      entry.updatedAt = now();
+    }
     await saveStore(store);
     jsonResponse(response, 200, { ok: true });
+    return;
+  }
+
+  if (/^\/api\/entries\/[^/]+\/restore$/.test(pathname) && request.method === "POST") {
+    if (!requireUser(ctx, response)) return;
+    const entryId = pathname.split("/")[3];
+    const entry = store.entries.find((item) => item.id === entryId && item.userId === ctx.user.id);
+    if (!entry) {
+      jsonResponse(response, 404, { error: "not_found" });
+      return;
+    }
+    entry.deletedAt = null;
+    entry.updatedAt = now();
+    await saveStore(store);
+    jsonResponse(response, 200, { entry: publicEntry(entry) });
     return;
   }
 
   if (/^\/api\/entries\/[^/]+\/code$/.test(pathname) && request.method === "GET") {
     if (!requireUser(ctx, response)) return;
     const entryId = pathname.split("/")[3];
-    const entry = store.entries.find((item) => item.id === entryId && item.userId === ctx.user.id);
+    const entry = store.entries.find((item) => item.id === entryId && item.userId === ctx.user.id && !item.deletedAt);
     if (!entry) {
       jsonResponse(response, 404, { error: "not_found" });
       return;
@@ -1392,7 +1417,7 @@ async function handleApi(request, response, pathname) {
 
   if (pathname === "/api/export" && request.method === "GET") {
     if (!requireUser(ctx, response)) return;
-    const entries = store.entries.filter((item) => item.userId === ctx.user.id).map(publicEntry);
+    const entries = store.entries.filter((item) => item.userId === ctx.user.id && !item.deletedAt).map(publicEntry);
     const groups = store.groups.filter((item) => item.userId === ctx.user.id).map(publicGroup);
     jsonResponse(response, 200, { entries, groups });
     return;
@@ -1603,7 +1628,7 @@ const server = createServer(async (request, response) => {
   const pathname = decodeURIComponent(url.pathname);
   if (pathname.startsWith("/api/")) {
     try {
-      await handleApi(request, response, pathname);
+      await handleApi(request, response, pathname, url);
     } catch (error) {
       jsonResponse(response, 500, { error: "server_error", message: String(error?.message || error) });
     }

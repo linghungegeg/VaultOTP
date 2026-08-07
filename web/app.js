@@ -29,13 +29,16 @@
     adminReveals: {},
     editingId: null,
     groupFilter: "all",
+    lifecycleView: "active",
     sortMode: "recent",
+    batchGroupId: "default",
     search: "",
     message: "",
     adminMessage: "",
     otpCodes: new Map(),
     otpRefreshVersion: 0,
     copiedId: "",
+    selectedEntryIds: new Set(),
     renderScheduled: false,
     importOpen: false,
     settingsOpen: false,
@@ -43,6 +46,7 @@
     importText: "",
     importItems: [],
     importMessage: "",
+    importDuplicateMode: "skip",
     online: navigator.onLine,
     serviceWorkerReady: false,
     offlineSecrets: new Map(),
@@ -201,6 +205,7 @@
       pinned: Boolean(entry.pinned),
       note: entry.note || "",
       icon: entry.icon || "",
+      deletedAt: entry.deletedAt || null,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
     };
@@ -257,9 +262,10 @@
   async function loadOfflineSecrets() {
     state.offlineSecrets = new Map();
     state.offlineSecretIds = new Set();
-    if (!state.user?.id || !state.entries.length) return;
+    const entries = activeEntries();
+    if (!state.user?.id || !entries.length) return;
     const key = await offlineKey();
-    for (const entry of state.entries) {
+    for (const entry of entries) {
       const record = await offlineStore("secrets", "readonly", (store) => idbRequest(store.get(entry.id)));
       if (!record || record.userId !== state.user.id) continue;
       state.offlineSecretIds.add(entry.id);
@@ -311,16 +317,20 @@
     state.patToken = "";
     state.editingId = null;
     state.groupFilter = "all";
+    state.lifecycleView = "active";
     state.sortMode = "recent";
+    state.batchGroupId = "default";
     state.search = "";
     state.message = "";
     state.otpCodes = new Map();
+    state.selectedEntryIds = new Set();
     state.importOpen = false;
     state.settingsOpen = false;
     state.scannerOpen = false;
     state.importText = "";
     state.importItems = [];
     state.importMessage = "";
+    state.importDuplicateMode = "skip";
     stopQrScanner();
     state.offlineSecrets = new Map();
     state.offlineSecretIds = new Set();
@@ -452,6 +462,13 @@
   function entryDuplicateKey(entry) {
     const period = entry.type === "TOTP" ? Number(entry.period || 30) : "";
     return [entry.type, entry.issuer, entry.account, entry.secret, entry.algorithm, entry.digits, period]
+      .map((part) => String(part || "").toLowerCase())
+      .join("|");
+  }
+
+  function entryIdentityKey(entry) {
+    const period = entry.type === "TOTP" ? Number(entry.period || 30) : "";
+    return [entry.type, entry.issuer, entry.account, entry.algorithm, entry.digits, period]
       .map((part) => String(part || "").toLowerCase())
       .join("|");
   }
@@ -871,11 +888,12 @@
   }
 
   function previewImportItems(entries) {
-    const existingKeys = new Set(state.entries.map(entryDuplicateKey));
+    const existingByKey = new Map(activeEntries().map((entry) => [entryIdentityKey(entry), entry]));
     const previewKeys = new Set();
     return entries.map((entry) => {
       let status = "valid";
       let reason = "";
+      let mergeEntryId = "";
       try {
         base32ToBytes(entry.secret);
       } catch {
@@ -886,23 +904,42 @@
         status = "invalid";
         reason = t("reasonMissingFields");
       }
-      const key = entryDuplicateKey(entry);
-      if (status === "valid" && (existingKeys.has(key) || previewKeys.has(key))) {
-        status = "duplicate";
-        reason = t("reasonDuplicate");
+      const key = entryIdentityKey(entry);
+      const existingEntry = existingByKey.get(key);
+      const previewDuplicate = previewKeys.has(key);
+      if (status === "valid" && (existingEntry || previewDuplicate)) {
+        if (state.importDuplicateMode === "keep") {
+          reason = t("reasonKeepDuplicate");
+        } else if (state.importDuplicateMode === "merge" && existingEntry && !previewDuplicate) {
+          mergeEntryId = existingEntry.id;
+          reason = t("reasonMergeDuplicate");
+        } else {
+          status = "duplicate";
+          reason = t("reasonDuplicate");
+        }
       }
       previewKeys.add(key);
-      return { id: uid(), entry, status, reason, selected: status === "valid" };
+      return { id: uid(), entry, status, reason, mergeEntryId, selected: status === "valid" };
     });
+  }
+
+  function refreshImportPreview() {
+    if (!state.importText.trim()) {
+      state.importItems = [];
+      return;
+    }
+    state.importItems = previewImportItems(parseImportPayload(state.importText));
   }
 
   async function loadUserData() {
     const groups = await api("/api/groups");
-    const entries = await api("/api/entries");
+    const entries = await api("/api/entries?includeDeleted=1");
     const pats = await api("/api/pats");
     state.groups = groups.items;
     state.entries = entries.items;
     state.pats = pats.items;
+    const entryIds = new Set(state.entries.map((entry) => entry.id));
+    state.selectedEntryIds = new Set([...state.selectedEntryIds].filter((id) => entryIds.has(id)));
     try {
       await cacheOfflineSnapshot();
       await loadOfflineSecrets();
@@ -939,17 +976,18 @@
   }
 
   async function refreshOtpCodes() {
-    if (!state.entries.length) {
+    const entries = activeEntries();
+    if (!entries.length) {
       state.otpCodes = new Map();
       renderOtpCodes();
       return;
     }
     const refreshVersion = ++state.otpRefreshVersion;
     const codes = new Map();
-    const concurrency = state.userToken ? 3 : state.entries.length;
-    for (let index = 0; index < state.entries.length; index += concurrency) {
+    const concurrency = state.userToken ? 3 : entries.length;
+    for (let index = 0; index < entries.length; index += concurrency) {
       await Promise.all(
-        state.entries.slice(index, index + concurrency).map(async (entry) => {
+        entries.slice(index, index + concurrency).map(async (entry) => {
           try {
             if (state.userToken) {
               const payload = await api(`/api/entries/${entry.id}/code`);
@@ -985,10 +1023,19 @@
     return (state.groups.find((group) => group.id === groupId) || {}).name || t("defaultGroup");
   }
 
+  function activeEntries() {
+    return state.entries.filter((entry) => !entry.deletedAt);
+  }
+
+  function trashedEntries() {
+    return state.entries.filter((entry) => entry.deletedAt);
+  }
+
   function filteredEntries() {
     const query = state.search.trim().toLowerCase();
-    const entries = state.entries.filter((entry) => {
-      const groupOk = state.groupFilter === "all" || entry.groupId === state.groupFilter;
+    const source = state.lifecycleView === "trash" ? trashedEntries() : activeEntries();
+    const entries = source.filter((entry) => {
+      const groupOk = state.lifecycleView === "trash" || state.groupFilter === "all" || entry.groupId === state.groupFilter;
       const text = `${entry.issuer} ${entry.account} ${entry.note} ${findGroupName(entry.groupId)}`.toLowerCase();
       return groupOk && (!query || text.includes(query));
     });
@@ -1021,7 +1068,7 @@
   }
 
   function countGroup(groupId) {
-    return state.entries.filter((entry) => entry.groupId === groupId).length;
+    return activeEntries().filter((entry) => entry.groupId === groupId).length;
   }
 
   function periodRemaining(entry) {
@@ -1133,8 +1180,12 @@
             <div class="muted">${t("serverBacked")}</div>
           </div>
           <div class="group-list">
-            ${groupButton("all", t("allGroups"), state.entries.length)}
+            ${groupButton("all", t("allGroups"), activeEntries().length)}
             ${state.groups.map((group) => groupButton(group.id, group.name, countGroup(group.id))).join("")}
+            <button class="group-item ${state.lifecycleView === "trash" ? "active" : ""}" data-action="show-trash">
+              <span>${t("trash")}</span>
+              <span>${trashedEntries().length}</span>
+            </button>
           </div>
         </aside>
         <main class="content user-content">
@@ -1155,6 +1206,7 @@
           </header>
           <div class="user-main-stack">
             ${listToolbar(entries.length)}
+            ${batchToolbar(entries)}
             <section class="entry-list">
               ${entries.length ? entries.map(entryView).join("") : emptyEntryState()}
             </section>
@@ -1170,14 +1222,20 @@
   function listToolbar(count) {
     return `
       <section class="entry-toolbar">
-        <div class="field sort-field">
-          <label for="sort-mode">${t("sortBy")}</label>
-          <select id="sort-mode" data-action="sort-mode">
-            <option value="recent" ${state.sortMode === "recent" ? "selected" : ""}>${t("sortRecent")}</option>
-            <option value="name" ${state.sortMode === "name" ? "selected" : ""}>${t("sortName")}</option>
-            <option value="group" ${state.sortMode === "group" ? "selected" : ""}>${t("sortGroup")}</option>
-            <option value="created" ${state.sortMode === "created" ? "selected" : ""}>${t("sortCreated")}</option>
-          </select>
+        <div class="entry-toolbar-left">
+          <div class="segmented">
+            <button class="${state.lifecycleView === "active" ? "active" : ""}" data-action="show-active">${t("activeEntries")}</button>
+            <button class="${state.lifecycleView === "trash" ? "active" : ""}" data-action="show-trash">${t("trash")}</button>
+          </div>
+          <div class="field sort-field">
+            <label for="sort-mode">${t("sortBy")}</label>
+            <select id="sort-mode" data-action="sort-mode">
+              <option value="recent" ${state.sortMode === "recent" ? "selected" : ""}>${t("sortRecent")}</option>
+              <option value="name" ${state.sortMode === "name" ? "selected" : ""}>${t("sortName")}</option>
+              <option value="group" ${state.sortMode === "group" ? "selected" : ""}>${t("sortGroup")}</option>
+              <option value="created" ${state.sortMode === "created" ? "selected" : ""}>${t("sortCreated")}</option>
+            </select>
+          </div>
         </div>
         <div class="inline-actions entry-toolbar-actions">
           <span class="muted">${t("entriesCount", { count })}</span>
@@ -1187,8 +1245,42 @@
     `;
   }
 
+  function batchToolbar(entries) {
+    const selectedCount = entries.filter((entry) => state.selectedEntryIds.has(entry.id)).length;
+    return `
+      <section class="batch-toolbar">
+        <label class="checkbox-field">
+          <input type="checkbox" data-action="select-visible" ${entries.length && selectedCount === entries.length ? "checked" : ""} ${entries.length ? "" : "disabled"} />
+          ${t("selectVisible")}
+        </label>
+        <span class="muted">${t("selectedCount", { count: selectedCount })}</span>
+        ${
+          state.lifecycleView === "trash"
+            ? `
+              <div class="inline-actions batch-actions">
+                <button class="ghost" data-action="restore-selected" ${selectedCount ? "" : "disabled"}>${t("restoreSelected")}</button>
+                <button class="danger" data-action="delete-selected-permanent" ${selectedCount ? "" : "disabled"}>${t("deleteForever")}</button>
+              </div>
+            `
+            : `
+              <div class="inline-actions batch-actions">
+                <select data-action="batch-group" ${selectedCount ? "" : "disabled"}>
+                  ${state.groups.map((group) => `<option value="${group.id}" ${state.batchGroupId === group.id ? "selected" : ""}>${escapeHtml(group.name)}</option>`).join("")}
+                </select>
+                <button class="ghost" data-action="move-selected" ${selectedCount ? "" : "disabled"}>${t("moveSelected")}</button>
+                <button class="danger" data-action="delete-selected" ${selectedCount ? "" : "disabled"}>${t("deleteSelected")}</button>
+              </div>
+            `
+        }
+      </section>
+    `;
+  }
+
   function emptyEntryState() {
     const hasFilters = Boolean(state.search.trim()) || state.groupFilter !== "all";
+    if (state.lifecycleView === "trash") {
+      return `<div class="empty-state"><div class="empty">${t("trashEmpty")}</div></div>`;
+    }
     if (hasFilters) {
       return `
         <div class="empty-state">
@@ -1405,25 +1497,38 @@
   function entryView(entry) {
     const code = state.otpCodes.get(entry.id) || "------";
     const revealed = state.revealedEntryIds.has(entry.id);
+    const isTrash = Boolean(entry.deletedAt);
     return `
-      <article class="entry ${state.editingId === entry.id ? "selected" : ""} ${entry.pinned ? "pinned" : ""}" data-entry-id="${entry.id}">
+      <article class="entry ${state.editingId === entry.id ? "selected" : ""} ${entry.pinned ? "pinned" : ""} ${isTrash ? "deleted" : ""}" ${isTrash ? "" : `data-entry-id="${entry.id}"`}>
         <div class="entry-main">
-          <div class="entry-title">
-            <strong>${escapeHtml(entry.issuer)}</strong>
-            <span class="muted">${escapeHtml(entry.account)}</span>
-          </div>
-          <div class="entry-actions">
-            <button class="otp otp-toggle" type="button" data-action="toggle-code" data-id="${entry.id}" aria-label="${revealed ? t("hideCode") : t("showCode")}">
-              ${escapeHtml(revealed ? code : "******")}
-            </button>
-            <button class="icon-button" data-action="copy" data-id="${entry.id}">${state.copiedId === entry.id ? t("copied") : t("copy")}</button>
-            <button class="icon-button" data-action="toggle-pin" data-id="${entry.id}">${entry.pinned ? t("unpin") : t("pin")}</button>
-            ${entry.type === "HOTP" ? `<button class="icon-button" data-action="next-hotp" data-id="${entry.id}">${t("next")}</button>` : ""}
+          <input type="checkbox" class="entry-select" data-entry-select="${entry.id}" ${state.selectedEntryIds.has(entry.id) ? "checked" : ""} />
+          <div class="entry-body">
+            <div class="entry-title">
+              <strong>${escapeHtml(entry.issuer)}</strong>
+              <span class="muted">${escapeHtml(entry.account)}</span>
+            </div>
+            <div class="entry-actions">
+              ${
+                isTrash
+                  ? `
+                    <button class="ghost" data-action="restore-entry" data-id="${entry.id}">${t("restore")}</button>
+                    <button class="danger" data-action="delete-entry-permanent" data-id="${entry.id}">${t("deleteForever")}</button>
+                  `
+                  : `
+                    <button class="otp otp-toggle" type="button" data-action="toggle-code" data-id="${entry.id}" aria-label="${revealed ? t("hideCode") : t("showCode")}">
+                      ${escapeHtml(revealed ? code : "******")}
+                    </button>
+                    <button class="icon-button" data-action="copy" data-id="${entry.id}">${state.copiedId === entry.id ? t("copied") : t("copy")}</button>
+                    <button class="icon-button" data-action="toggle-pin" data-id="${entry.id}">${entry.pinned ? t("unpin") : t("pin")}</button>
+                    ${entry.type === "HOTP" ? `<button class="icon-button" data-action="next-hotp" data-id="${entry.id}">${t("next")}</button>` : ""}
+                  `
+              }
+            </div>
           </div>
         </div>
         <div class="entry-meta">
           <span class="badge">${escapeHtml(findGroupName(entry.groupId))}</span>
-          <span class="badge" data-period-id="${entry.id}">${escapeHtml(periodRemaining(entry))}</span>
+          ${isTrash ? `<span class="badge">${escapeHtml(entry.deletedAt || "")}</span>` : `<span class="badge" data-period-id="${entry.id}">${escapeHtml(periodRemaining(entry))}</span>`}
           ${entry.pinned ? `<span class="badge">${t("pinned")}</span>` : ""}
         </div>
       </article>
@@ -1587,6 +1692,14 @@
           <div class="field">
             <label>${t("importSource")}</label>
             <textarea id="import-text" class="import-text" placeholder="${t("importHint")}">${escapeHtml(state.importText)}</textarea>
+          </div>
+          <div class="field import-duplicate-field">
+            <label for="import-duplicate-mode">${t("duplicateHandling")}</label>
+            <select id="import-duplicate-mode" data-action="import-duplicate-mode">
+              <option value="skip" ${state.importDuplicateMode === "skip" ? "selected" : ""}>${t("duplicateSkip")}</option>
+              <option value="merge" ${state.importDuplicateMode === "merge" ? "selected" : ""}>${t("duplicateMerge")}</option>
+              <option value="keep" ${state.importDuplicateMode === "keep" ? "selected" : ""}>${t("duplicateKeep")}</option>
+            </select>
           </div>
           <div class="inline-actions">
             <button class="primary" data-action="parse-import">${t("parseImport")}</button>
@@ -1869,14 +1982,28 @@
     }
     try {
       const entries = [];
+      const merged = [];
       for (const item of items) {
-        entries.push({ ...item.entry, encryptedSecret: await encryptSecret(item.entry.secret), secret: undefined });
+        const entry = { ...item.entry, encryptedSecret: await encryptSecret(item.entry.secret), secret: undefined };
+        if (state.importDuplicateMode === "merge" && item.mergeEntryId) {
+          merged.push({ id: item.mergeEntryId, entry, secret: item.entry.secret });
+        } else {
+          entries.push({ entry, secret: item.entry.secret });
+        }
       }
-      const imported = await api("/api/import", { method: "POST", body: JSON.stringify({ entries }) });
+      const imported = entries.length ? await api("/api/import", { method: "POST", body: JSON.stringify({ entries: entries.map((item) => item.entry) }) }) : { entries: [] };
       const inserted = Array.isArray(imported.entries) ? imported.entries : [];
       for (const [index, entry] of inserted.entries()) {
         try {
-          await cacheOfflineSecret(entry, items[index]?.entry.secret);
+          await cacheOfflineSecret(entry, entries[index]?.secret);
+        } catch {
+          state.pwaMessage = t("offlineCacheUnavailable");
+        }
+      }
+      for (const item of merged) {
+        const saved = await api(`/api/entries/${item.id}`, { method: "PATCH", body: JSON.stringify(item.entry) });
+        try {
+          await cacheOfflineSecret(saved.entry, item.secret);
         } catch {
           state.pwaMessage = t("offlineCacheUnavailable");
         }
@@ -1991,10 +2118,68 @@
   }
 
   async function deleteEntry(id) {
-    if (!confirm(t("deleteEntryConfirm"))) return;
+    if (!confirm(t("moveToTrashConfirm"))) return;
     await api(`/api/entries/${id}`, { method: "DELETE" });
-    await deleteOfflineSecret(id);
+    state.selectedEntryIds.delete(id);
     state.editingId = null;
+    await loadUserData();
+    render();
+  }
+
+  async function restoreEntry(id) {
+    await api(`/api/entries/${id}/restore`, { method: "POST" });
+    state.selectedEntryIds.delete(id);
+    await loadUserData();
+    render();
+  }
+
+  async function deleteEntryPermanently(id) {
+    if (!confirm(t("deleteForeverConfirm"))) return;
+    await api(`/api/entries/${id}?permanent=1`, { method: "DELETE" });
+    await deleteOfflineSecret(id);
+    state.selectedEntryIds.delete(id);
+    await loadUserData();
+    render();
+  }
+
+  function selectedEntriesInCurrentView() {
+    const visibleIds = new Set(filteredEntries().map((entry) => entry.id));
+    return state.entries.filter((entry) => visibleIds.has(entry.id) && state.selectedEntryIds.has(entry.id));
+  }
+
+  async function moveSelectedEntries() {
+    const groupId = state.batchGroupId || "default";
+    const entries = selectedEntriesInCurrentView().filter((entry) => !entry.deletedAt);
+    await Promise.all(entries.map((entry) => api(`/api/entries/${entry.id}`, { method: "PATCH", body: JSON.stringify({ groupId }) })));
+    state.selectedEntryIds = new Set();
+    await loadUserData();
+    render();
+  }
+
+  async function deleteSelectedEntries() {
+    const entries = selectedEntriesInCurrentView().filter((entry) => !entry.deletedAt);
+    if (!entries.length || !confirm(t("deleteSelectedConfirm", { count: entries.length }))) return;
+    await Promise.all(entries.map((entry) => api(`/api/entries/${entry.id}`, { method: "DELETE" })));
+    state.selectedEntryIds = new Set();
+    state.editingId = null;
+    await loadUserData();
+    render();
+  }
+
+  async function restoreSelectedEntries() {
+    const entries = selectedEntriesInCurrentView().filter((entry) => entry.deletedAt);
+    await Promise.all(entries.map((entry) => api(`/api/entries/${entry.id}/restore`, { method: "POST" })));
+    state.selectedEntryIds = new Set();
+    await loadUserData();
+    render();
+  }
+
+  async function deleteSelectedEntriesPermanently() {
+    const entries = selectedEntriesInCurrentView().filter((entry) => entry.deletedAt);
+    if (!entries.length || !confirm(t("deleteForeverSelectedConfirm", { count: entries.length }))) return;
+    await Promise.all(entries.map((entry) => api(`/api/entries/${entry.id}?permanent=1`, { method: "DELETE" })));
+    await Promise.all(entries.map((entry) => deleteOfflineSecret(entry.id)));
+    state.selectedEntryIds = new Set();
     await loadUserData();
     render();
   }
@@ -2167,6 +2352,7 @@
     }
     if (target.dataset.group) {
       state.groupFilter = target.dataset.group;
+      state.lifecycleView = "active";
       state.editingId = null;
       render();
       return;
@@ -2199,7 +2385,21 @@
       state.message = "";
       render();
     }
+    if (action === "show-active") {
+      state.lifecycleView = "active";
+      state.groupFilter = "all";
+      state.selectedEntryIds = new Set();
+      render();
+    }
+    if (action === "show-trash") {
+      state.lifecycleView = "trash";
+      state.groupFilter = "all";
+      state.selectedEntryIds = new Set();
+      render();
+    }
     if (action === "delete-entry") await deleteEntry(id);
+    if (action === "delete-entry-permanent") await deleteEntryPermanently(id);
+    if (action === "restore-entry") await restoreEntry(id);
     if (action === "next-hotp") await nextHotp(id);
     if (action === "copy") await copyCode(id);
     if (action === "toggle-code") toggleCodeVisibility(id);
@@ -2238,6 +2438,10 @@
       state.groupFilter = "all";
       render();
     }
+    if (action === "move-selected") await moveSelectedEntries();
+    if (action === "delete-selected") await deleteSelectedEntries();
+    if (action === "restore-selected") await restoreSelectedEntries();
+    if (action === "delete-selected-permanent") await deleteSelectedEntriesPermanently();
     if (action === "admin-logout") await adminLogout();
     if (action === "admin-disable-user") await disableAdminUser(id);
     if (action === "admin-delete-user") await deleteAdminUser(id);
@@ -2263,6 +2467,35 @@
   document.addEventListener("change", async (event) => {
     if (event.target.dataset.action === "sort-mode") {
       state.sortMode = event.target.value;
+      render();
+      return;
+    }
+    if (event.target.dataset.action === "select-visible") {
+      const visible = filteredEntries();
+      const next = new Set(state.selectedEntryIds);
+      for (const entry of visible) {
+        if (event.target.checked) next.add(entry.id);
+        else next.delete(entry.id);
+      }
+      state.selectedEntryIds = next;
+      render();
+      return;
+    }
+    if (event.target.dataset.action === "batch-group") {
+      state.batchGroupId = event.target.value;
+      return;
+    }
+    if (event.target.dataset.entrySelect) {
+      const next = new Set(state.selectedEntryIds);
+      if (event.target.checked) next.add(event.target.dataset.entrySelect);
+      else next.delete(event.target.dataset.entrySelect);
+      state.selectedEntryIds = next;
+      render();
+      return;
+    }
+    if (event.target.dataset.action === "import-duplicate-mode") {
+      state.importDuplicateMode = event.target.value;
+      refreshImportPreview();
       render();
       return;
     }

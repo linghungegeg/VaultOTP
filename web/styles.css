@@ -93,6 +93,13 @@ button:disabled {
   gap: 8px;
 }
 
+.entry-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  width: 100%;
+}
+
 .auth-panel > .brand-row {
   margin-bottom: 22px;
 }
@@ -315,6 +322,28 @@ textarea {
   padding: 18px 18px 0;
 }
 
+.entry-main {
+  gap: 12px;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.entry-toolbar-left {
+  display: grid;
+  gap: 10px;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.segmented button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .entry-toolbar .field {
   margin-bottom: 0;
 }
@@ -335,6 +364,18 @@ textarea {
   padding: 16px 0 4px;
 }
 
+.batch-toolbar {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  padding: 0 18px;
+}
+
+.batch-actions {
+  justify-content: flex-end;
+}
+
 .entry {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -350,8 +391,20 @@ textarea {
   border-color: #b48b14;
 }
 
+.entry.deleted {
+  border-style: dashed;
+  opacity: 0.92;
+}
+
 .entry-title {
   min-width: 0;
+}
+
+.entry-select {
+  flex: 0 0 auto;
+  height: 18px;
+  margin: 0;
+  width: 18px;
 }
 
 .entry-title strong,
@@ -1061,6 +1114,10 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .batch-toolbar {
+    grid-template-columns: 1fr;
+  }
+
   .admin-layout {
     display: block;
   }
@@ -1131,6 +1188,10 @@ textarea {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
     width: 100%;
+  }
+
+  .batch-actions {
+    justify-content: flex-start;
   }
 
   .entry-toolbar-actions {
