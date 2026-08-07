@@ -1443,7 +1443,6 @@
       counter: 0,
       groupId: "default",
       note: "",
-      icon: "",
     };
     return `
       <div class="panel-title">
@@ -1511,13 +1510,55 @@
             </div>
           </div>
         </details>
-        <div class="error">${escapeHtml(state.message)}</div>
+        <div class="error" data-entry-message>${escapeHtml(state.message)}</div>
         <div class="inline-actions">
           <button class="primary" type="submit">${t("save")}</button>
           <button class="ghost" type="button" data-action="clear-edit">${t("cancel")}</button>
         </div>
       </form>
     `;
+  }
+
+  function setEntryFormMessage(message) {
+    state.message = message || "";
+    const node = document.querySelector("[data-entry-message]");
+    if (node) node.textContent = message || "";
+  }
+
+  function fillEntryFormFromOtpAuth(parsed) {
+    const form = document.getElementById("entry-form");
+    if (!form) return;
+    form.elements.issuer.value = parsed.issuer;
+    form.elements.account.value = parsed.account;
+    form.elements.secret.value = parsed.secret;
+    form.elements.type.value = parsed.type;
+    form.elements.algorithm.value = parsed.algorithm;
+    form.elements.digits.value = String(parsed.digits || 6);
+    form.elements.period.value = String(parsed.period || 30);
+    form.elements.counter.value = String(parsed.counter || 0);
+    setEntryFormMessage("");
+  }
+
+  function handleEntrySecretInput(input) {
+    const value = String(input.value || "").trim();
+    if (!value) {
+      setEntryFormMessage("");
+      return;
+    }
+    if (value.toLowerCase().startsWith("otpauth://")) {
+      try {
+        fillEntryFormFromOtpAuth(parseOtpAuthUri(value));
+      } catch {
+        setEntryFormMessage(t("reasonUnsupported"));
+      }
+      return;
+    }
+    try {
+      base32ToBytes(value);
+      setEntryFormMessage("");
+    } catch {
+      setEntryFormMessage(t("invalidSecret"));
+    }
   }
 
   function importPanel() {
@@ -2210,6 +2251,9 @@
     if (event.target.id === "search") {
       state.search = event.target.value;
       scheduleRender();
+    }
+    if (event.target.closest("#entry-form") && event.target.name === "secret") {
+      handleEntrySecretInput(event.target);
     }
     if (event.target.id === "import-text") {
       state.importText = event.target.value;
