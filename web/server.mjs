@@ -682,8 +682,8 @@ function publicDocsContent(origin, locale) {
             ["GET", "/api/activity", "Recent user activity"],
           ],
           examplesTitle: "Examples",
-          listExample: `curl -H "Authorization: Bearer <PAT>" ${origin}/api/entries`,
-          codeExample: `curl -H "Authorization: Bearer <PAT>" ${origin}/api/entries/{entryId}/code`,
+          listExample: `curl -H "Authorization: Bearer <PAT>" "$BASE_URL/api/entries"`,
+          codeExample: `curl -H "Authorization: Bearer <PAT>" "$BASE_URL/api/entries/{entryId}/code"`,
         }
       : {
           sections: [
@@ -739,8 +739,8 @@ function publicDocsContent(origin, locale) {
             ["GET", "/api/activity", "最近用户活动"],
           ],
           examplesTitle: "调用示例",
-          listExample: `curl -H "Authorization: Bearer <PAT>" ${origin}/api/entries`,
-          codeExample: `curl -H "Authorization: Bearer <PAT>" ${origin}/api/entries/{entryId}/code`,
+          listExample: `curl -H "Authorization: Bearer <PAT>" "$BASE_URL/api/entries"`,
+          codeExample: `curl -H "Authorization: Bearer <PAT>" "$BASE_URL/api/entries/{entryId}/code"`,
         };
   return `
     <section class="public-docs">
