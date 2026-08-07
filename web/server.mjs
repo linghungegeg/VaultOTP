@@ -883,6 +883,29 @@ function publicPat(pat) {
   };
 }
 
+function publicAuditLog(log) {
+  return {
+    id: log.id,
+    actorKind: log.actorKind || (log.actorUserId ? "user" : "admin"),
+    actorAdminId: log.actorAdminId || "",
+    actorUserId: log.actorUserId || "",
+    targetUserId: log.targetUserId || "",
+    targetEntryId: log.targetEntryId || "",
+    action: log.action,
+    ip: log.ip || "local",
+    userAgent: log.userAgent || "",
+    createdAt: log.createdAt,
+    details: log.details || {},
+  };
+}
+
+function userAuditLogs(store, userId, limit = 80) {
+  return store.auditLogs
+    .filter((log) => log.actorUserId === userId || log.targetUserId === userId)
+    .slice(0, limit)
+    .map(publicAuditLog);
+}
+
 async function readJsonBody(request) {
   const chunks = [];
   for await (const chunk of request) {
@@ -977,12 +1000,30 @@ function requireAdmin(ctx, response) {
 async function recordAudit(store, action, adminId, targetUserId = "", targetEntryId = "", details = {}) {
   store.auditLogs.unshift({
     id: uid(),
+    actorKind: "admin",
     actorAdminId: adminId,
     targetUserId,
     targetEntryId,
     action,
     ip: "local",
     userAgent: details.userAgent || "",
+    createdAt: now(),
+    details,
+  });
+  store.auditLogs = store.auditLogs.slice(0, 500);
+  await saveStore(store);
+}
+
+async function recordUserAudit(store, action, userId, targetEntryId = "", details = {}) {
+  store.auditLogs.unshift({
+    id: uid(),
+    actorKind: "user",
+    actorUserId: userId,
+    targetUserId: userId,
+    targetEntryId,
+    action,
+    ip: "local",
+    userAgent: "",
     createdAt: now(),
     details,
   });
@@ -1065,6 +1106,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     };
     await saveStore(store);
     const token = await createSession(store, "admin", store.admin.id);
+    await recordAudit(store, "setup_admin", store.admin.id, "", "", { userAgent: request.headers["user-agent"] || "" });
     jsonResponse(response, 201, { admin: publicUser(store.admin), token });
     return;
   }
@@ -1120,6 +1162,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     await ensureDefaultGroup(store, user.id);
     await saveStore(store);
     const token = await createSession(store, "user", user.id);
+    await recordUserAudit(store, "register_user", user.id);
     jsonResponse(response, 201, { user: publicUser(user), token });
     return;
   }
@@ -1142,6 +1185,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     user.updatedAt = user.lastLoginAt;
     await saveStore(store);
     const token = await createSession(store, "user", user.id);
+    await recordUserAudit(store, "login_user", user.id);
     jsonResponse(response, 200, { user: publicUser(user), token });
     return;
   }
@@ -1153,6 +1197,8 @@ async function handleApi(request, response, pathname, requestUrl) {
     }
     const tokenHash = sha256Hex(String((request.headers.authorization || "").slice(7).trim()));
     store.sessions = store.sessions.filter((item) => item.tokenHash !== tokenHash);
+    if (ctx.kind === "user") await recordUserAudit(store, "logout_user", ctx.user.id);
+    if (ctx.kind === "admin") await recordAudit(store, "logout_admin", ctx.admin.id);
     await saveStore(store);
     jsonResponse(response, 200, { ok: true });
     return;
@@ -1172,9 +1218,16 @@ async function handleApi(request, response, pathname, requestUrl) {
     return;
   }
 
+  if (pathname === "/api/activity" && request.method === "GET") {
+    if (!requireUser(ctx, response)) return;
+    jsonResponse(response, 200, { items: userAuditLogs(store, ctx.user.id) });
+    return;
+  }
+
   if (pathname === "/api/me" && request.method === "DELETE") {
     if (!requireUser(ctx, response)) return;
     const userId = ctx.user.id;
+    await recordUserAudit(store, "delete_account", userId);
     store.users = store.users.filter((item) => item.id !== userId);
     store.entries = store.entries.filter((item) => item.userId !== userId);
     store.groups = store.groups.filter((item) => item.userId !== userId);
@@ -1213,6 +1266,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     };
     store.pats.push(pat);
     await saveStore(store);
+    await recordUserAudit(store, "create_pat", ctx.user.id, "", { patId: pat.id });
     jsonResponse(response, 201, { pat: publicPat(pat), token });
     return;
   }
@@ -1228,6 +1282,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     }
     pat.name = String(body.name || pat.name).trim();
     await saveStore(store);
+    await recordUserAudit(store, "rename_pat", ctx.user.id, "", { patId });
     jsonResponse(response, 200, { pat: publicPat(pat) });
     return;
   }
@@ -1242,6 +1297,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     }
     pat.disabledAt = pat.disabledAt || now();
     await saveStore(store);
+    await recordUserAudit(store, "disable_pat", ctx.user.id, "", { patId });
     jsonResponse(response, 200, { pat: publicPat(pat) });
     return;
   }
@@ -1268,6 +1324,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     };
     store.pats.push(nextPat);
     await saveStore(store);
+    await recordUserAudit(store, "rotate_pat", ctx.user.id, "", { patId, nextPatId: nextPat.id });
     jsonResponse(response, 201, { pat: publicPat(nextPat), token });
     return;
   }
@@ -1282,6 +1339,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     }
     pat.revokedAt = now();
     await saveStore(store);
+    await recordUserAudit(store, "delete_pat", ctx.user.id, "", { patId });
     jsonResponse(response, 200, { ok: true });
     return;
   }
@@ -1311,6 +1369,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     };
     store.groups.push(group);
     await saveStore(store);
+    await recordUserAudit(store, "create_group", ctx.user.id, "", { groupId: group.id });
     jsonResponse(response, 201, { group: publicGroup(group) });
     return;
   }
@@ -1330,6 +1389,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     }
     group.updatedAt = now();
     await saveStore(store);
+    await recordUserAudit(store, "update_group", ctx.user.id, "", { groupId });
     jsonResponse(response, 200, { group: publicGroup(group) });
     return;
   }
@@ -1352,6 +1412,7 @@ async function handleApi(request, response, pathname, requestUrl) {
       entry.updatedAt = now();
     }
     await saveStore(store);
+    await recordUserAudit(store, "delete_group", ctx.user.id, "", { groupId });
     jsonResponse(response, 200, { ok: true });
     return;
   }
@@ -1396,6 +1457,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     };
     store.entries.push(entry);
     await saveStore(store);
+    await recordUserAudit(store, "create_entry", ctx.user.id, entry.id);
     jsonResponse(response, 201, { entry: publicEntry(entry) });
     return;
   }
@@ -1425,6 +1487,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     if (body.icon != null) entry.icon = payload.icon;
     entry.updatedAt = now();
     await saveStore(store);
+    await recordUserAudit(store, "update_entry", ctx.user.id, entry.id);
     jsonResponse(response, 200, { entry: publicEntry(entry) });
     return;
   }
@@ -1445,6 +1508,7 @@ async function handleApi(request, response, pathname, requestUrl) {
       entry.updatedAt = now();
     }
     await saveStore(store);
+    await recordUserAudit(store, permanent ? "delete_entry_permanent" : "delete_entry", ctx.user.id, entryId);
     jsonResponse(response, 200, { ok: true });
     return;
   }
@@ -1460,6 +1524,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     entry.deletedAt = null;
     entry.updatedAt = now();
     await saveStore(store);
+    await recordUserAudit(store, "restore_entry", ctx.user.id, entry.id);
     jsonResponse(response, 200, { entry: publicEntry(entry) });
     return;
   }
@@ -1501,11 +1566,13 @@ async function handleApi(request, response, pathname, requestUrl) {
       for (const entry of sourceEntries) {
         lines.push(otpAuthUri(entry, await decryptSecret(store, entry.secretEncrypted)));
       }
+      await recordUserAudit(store, entryId ? "export_entry_otpauth" : "export_otpauth", ctx.user.id, entryId, { count: sourceEntries.length });
       typedTextResponse(response, 200, lines.join("\n"), "text/plain; charset=utf-8");
       return;
     }
     const entries = sourceEntries.map(publicEntry);
     const groups = store.groups.filter((item) => item.userId === ctx.user.id).map(publicGroup);
+    await recordUserAudit(store, "export_encrypted", ctx.user.id, entryId, { count: sourceEntries.length });
     jsonResponse(response, 200, { format: "vaultotp-encrypted-backup-v1", exportedAt: now(), entries, groups });
     return;
   }
@@ -1543,6 +1610,7 @@ async function handleApi(request, response, pathname, requestUrl) {
       inserted.push(publicEntry(entry));
     }
     await saveStore(store);
+    await recordUserAudit(store, "import_entries", ctx.user.id, "", { count: inserted.length });
     jsonResponse(response, 201, { entries: inserted });
     return;
   }
@@ -1563,7 +1631,7 @@ async function handleApi(request, response, pathname, requestUrl) {
     }
     const entries = store.entries.filter((item) => item.userId === user.id).map(publicEntry);
     const groups = store.groups.filter((item) => item.userId === user.id).map(publicGroup);
-    jsonResponse(response, 200, { user: publicUser(user), entries, groups });
+    jsonResponse(response, 200, { user: publicUser(user), entries, groups, activity: userAuditLogs(store, user.id) });
     return;
   }
 
@@ -1650,7 +1718,7 @@ async function handleApi(request, response, pathname, requestUrl) {
 
   if (pathname === "/api/admin/audit" && request.method === "GET") {
     if (!requireAdmin(ctx, response)) return;
-    jsonResponse(response, 200, { items: store.auditLogs });
+    jsonResponse(response, 200, { items: store.auditLogs.map(publicAuditLog) });
     return;
   }
 
@@ -1675,6 +1743,7 @@ async function handleApi(request, response, pathname, requestUrl) {
       allowPublicIndexing: body.allowPublicIndexing !== false,
     };
     await saveStore(store);
+    await recordAudit(store, "update_site_settings", ctx.admin.id);
     jsonResponse(response, 200, { settings: siteSettings(store) });
     return;
   }

@@ -27,6 +27,7 @@
     groups: [],
     entries: [],
     pats: [],
+    activityLogs: [],
     patToken: "",
     adminUsers: [],
     adminDetail: null,
@@ -1231,14 +1232,18 @@
   }
 
   async function loadUserData() {
-    const session = await api("/api/me");
-    const groups = await api("/api/groups");
-    const entries = await api("/api/entries?includeDeleted=1");
-    const pats = await api("/api/pats");
+    const [session, groups, entries, pats, activity] = await Promise.all([
+      api("/api/me"),
+      api("/api/groups"),
+      api("/api/entries?includeDeleted=1"),
+      api("/api/pats"),
+      api("/api/activity"),
+    ]);
     state.sessionInfo = session;
     state.groups = groups.items;
     state.entries = entries.items;
     state.pats = pats.items;
+    state.activityLogs = activity.items || [];
     const entryIds = new Set(state.entries.map((entry) => entry.id));
     state.selectedEntryIds = new Set([...state.selectedEntryIds].filter((id) => entryIds.has(id)));
     try {
@@ -1675,6 +1680,7 @@
     if (state.settingsSection === "pwa") return pwaPanel();
     if (state.settingsSection === "pat") return patPanel();
     if (state.settingsSection === "transfer") return transferSettingsPanel();
+    if (state.settingsSection === "activity") return activitySettingsPanel();
     return settingsOverview();
   }
 
@@ -1686,6 +1692,7 @@
       ["pwa", t("settingsPwa"), t("settingsPwaHint")],
       ["pat", t("settingsPat"), t("settingsPatHint")],
       ["transfer", t("settingsTransfer"), t("settingsTransferHint")],
+      ["activity", t("settingsActivity"), t("settingsActivityHint")],
     ];
     return `
       <div class="settings-overview">
@@ -1699,6 +1706,29 @@
             `,
           )
           .join("")}
+      </div>
+    `;
+  }
+
+  function auditLogRow(log) {
+    return `
+      <div class="audit-row activity-row">
+        <span>${escapeHtml(log.createdAt || "")}</span>
+        <span>${escapeHtml(log.actorKind || "-")}</span>
+        <span>${escapeHtml(log.action || "-")}</span>
+        <span>${escapeHtml(log.targetEntryId || "-")}</span>
+      </div>
+    `;
+  }
+
+  function activitySettingsPanel() {
+    return `
+      <div class="sidebar-section">
+        <div class="section-title">${t("activityTitle")}</div>
+        <div class="muted">${t("activityHint")}</div>
+        <div class="admin-audit-list">
+          ${state.activityLogs.length ? state.activityLogs.slice(0, 30).map(auditLogRow).join("") : `<div class="empty">${t("noActivity")}</div>`}
+        </div>
       </div>
     `;
   }
@@ -2266,10 +2296,10 @@
 
   function adminAuditRow(log) {
     return `
-      <div class="audit-row">
+      <div class="audit-row activity-row">
         <span>${escapeHtml(log.createdAt || log.created_at || "")}</span>
+        <span>${escapeHtml(log.actorKind || "-")}</span>
         <span>${escapeHtml(log.action)}</span>
-        <span>${escapeHtml(log.targetUserId || log.target_user_id || "-")}</span>
         <span>${escapeHtml(log.targetEntryId || log.target_entry_id || "-")}</span>
       </div>
     `;
@@ -2279,6 +2309,7 @@
     const detail = state.adminDetail;
     const user = detail.user;
     const entries = detail.entries || [];
+    const activity = detail.activity || [];
     return `
       <section class="admin-detail">
         <div class="admin-summary">
@@ -2299,6 +2330,8 @@
         </div>
         <div class="section-title">${t("savedItems")}</div>
         ${entries.length ? `<div class="admin-entry-list">${entries.map((entry) => adminEntryRow(user.email, entry)).join("")}</div>` : `<div class="empty">${t("noEntries")}</div>`}
+        <div class="section-title">${t("activityTitle")}</div>
+        ${activity.length ? `<div class="admin-audit-list">${activity.slice(0, 20).map(auditLogRow).join("")}</div>` : `<div class="empty">${t("noActivity")}</div>`}
       </section>
     `;
   }
