@@ -6,6 +6,8 @@
   let currentLocale = i18n.getInitialLocale();
   const t = (key, params = {}) => i18n.t(key, currentLocale, params);
   const uid = () => `${Date.now().toString(36)}${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
+  const idleLockMs = 5 * 60 * 1000;
+  const hideCodesStorageKey = "vaultotp.hideCodesByDefault";
 
   const state = {
     route: "app",
@@ -17,6 +19,7 @@
     adminToken: "",
     user: null,
     admin: null,
+    sessionInfo: null,
     groups: [],
     entries: [],
     pats: [],
@@ -38,6 +41,11 @@
     otpCodes: new Map(),
     otpRefreshVersion: 0,
     copiedId: "",
+    copyMessage: "",
+    locked: false,
+    lockMessage: "",
+    lastActivityAt: Date.now(),
+    hideCodesByDefault: localStorage.getItem(hideCodesStorageKey) !== "false",
     selectedEntryIds: new Set(),
     renderScheduled: false,
     importOpen: false,
@@ -311,6 +319,7 @@
   function clearUserSession() {
     state.userToken = "";
     state.user = null;
+    state.sessionInfo = null;
     state.groups = [];
     state.entries = [];
     state.pats = [];
@@ -323,6 +332,11 @@
     state.search = "";
     state.message = "";
     state.otpCodes = new Map();
+    state.copiedId = "";
+    state.copyMessage = "";
+    state.locked = false;
+    state.lockMessage = "";
+    state.lastActivityAt = Date.now();
     state.selectedEntryIds = new Set();
     state.importOpen = false;
     state.settingsOpen = false;
@@ -932,9 +946,11 @@
   }
 
   async function loadUserData() {
+    const session = await api("/api/me");
     const groups = await api("/api/groups");
     const entries = await api("/api/entries?includeDeleted=1");
     const pats = await api("/api/pats");
+    state.sessionInfo = session;
     state.groups = groups.items;
     state.entries = entries.items;
     state.pats = pats.items;
@@ -1010,13 +1026,23 @@
   function renderOtpCodes() {
     document.querySelectorAll("[data-otp-id]").forEach((node) => {
       const id = node.getAttribute("data-otp-id");
-      node.textContent = state.otpCodes.get(id) || "------";
+      const visible = isCodeVisible(id);
+      node.textContent = visible ? state.otpCodes.get(id) || "------" : "******";
+      node.setAttribute("aria-label", visible ? t("hideCode") : t("showCode"));
+    });
+    document.querySelectorAll("[data-copy-id]").forEach((node) => {
+      const id = node.getAttribute("data-copy-id");
+      node.textContent = state.copiedId === id ? t("copied") : t("copy");
     });
     document.querySelectorAll("[data-period-id]").forEach((node) => {
       const id = node.getAttribute("data-period-id");
       const entry = state.entries.find((item) => item.id === id);
       node.textContent = entry ? periodRemaining(entry) : "";
     });
+  }
+
+  function isCodeVisible(id) {
+    return state.hideCodesByDefault ? state.revealedEntryIds.has(id) : !state.revealedEntryIds.has(id);
   }
 
   function findGroupName(groupId) {
@@ -1091,6 +1117,10 @@
     if (state.adminToken) clearAdminSession();
     if (!state.userToken && !state.user) {
       renderAuth();
+      return;
+    }
+    if (state.locked) {
+      renderUserLock();
       return;
     }
     renderUserApp();
@@ -1169,6 +1199,30 @@
     `;
   }
 
+  function renderUserLock() {
+    app.className = "screen auth-screen";
+    app.innerHTML = `
+      <section class="auth-panel">
+        <div class="brand-row">
+          <div>
+            <div class="brand">${t("lockedTitle")}</div>
+            <div class="muted">${escapeHtml(state.user?.email || "")}</div>
+          </div>
+          ${languageSwitch()}
+        </div>
+        <form id="unlock-form">
+          <div class="muted lock-hint">${t(state.lockMessage || "lockedHint")}</div>
+          <div class="field">
+            <label for="unlockPassword">${t("password")}</label>
+            <input id="unlockPassword" name="password" type="password" autocomplete="current-password" required autofocus />
+          </div>
+          <div class="error">${escapeHtml(state.message)}</div>
+          <button class="primary" type="submit">${t("unlockAction")}</button>
+        </form>
+      </section>
+    `;
+  }
+
   function renderUserApp() {
     app.className = "screen";
     const entries = filteredEntries();
@@ -1198,11 +1252,12 @@
               <label for="search">${t("search")}</label>
               <input id="search" value="${escapeHtml(state.search)}" />
             </div>
-            <div class="inline-actions user-top-actions">
-              <button class="primary" data-action="open-import">${t("importEntries")}</button>
-              <button class="ghost" data-action="new-entry">${t("addEntry")}</button>
-              <button class="ghost" data-action="toggle-settings" aria-expanded="${state.settingsOpen ? "true" : "false"}">${t("settings")}</button>
-            </div>
+          <div class="inline-actions user-top-actions">
+            <button class="primary" data-action="open-import">${t("importEntries")}</button>
+            <button class="ghost" data-action="new-entry">${t("addEntry")}</button>
+            <button class="ghost" data-action="lock-now">${t("lockNow")}</button>
+            <button class="ghost" data-action="toggle-settings" aria-expanded="${state.settingsOpen ? "true" : "false"}">${t("settings")}</button>
+          </div>
           </header>
           <div class="user-main-stack">
             ${listToolbar(entries.length)}
@@ -1239,6 +1294,7 @@
         </div>
         <div class="inline-actions entry-toolbar-actions">
           <span class="muted">${t("entriesCount", { count })}</span>
+          ${state.copyMessage ? `<span class="copy-feedback">${escapeHtml(state.copyMessage)}</span>` : ""}
           <button class="ghost" data-action="clear-filters">${t("clearFilters")}</button>
         </div>
       </section>
@@ -1310,6 +1366,7 @@
           <button class="ghost" data-action="toggle-settings">${t("close")}</button>
         </div>
         <div class="user-utility-grid">
+          ${privacyPanel()}
           ${accountSecurityPanel()}
           ${pwaPanel()}
           ${patPanel()}
@@ -1319,15 +1376,36 @@
   }
 
   function accountSecurityPanel() {
+    const session = state.sessionInfo || {};
+    const user = session.user || state.user || {};
     return `
       <div class="sidebar-section">
         <div class="section-title">${t("accountSecurity")}</div>
-        <div class="muted">${escapeHtml(state.user?.email || "")}</div>
+        <div class="session-list">
+          <div><span class="muted">${t("email")}</span><strong>${escapeHtml(user.email || "")}</strong></div>
+          <div><span class="muted">${t("authType")}</span><strong>${escapeHtml(session.authType || "session")}</strong></div>
+          <div><span class="muted">${t("lastLogin")}</span><strong>${escapeHtml(user.lastLoginAt || "-")}</strong></div>
+          <div><span class="muted">${t("patCount")}</span><strong>${escapeHtml(session.patCount ?? state.pats.length)}</strong></div>
+        </div>
         ${languageSwitch()}
         <div class="inline-actions settings-actions">
+          <button class="ghost" data-action="lock-now">${t("lockNow")}</button>
           <button class="ghost" data-action="logout">${t("logout")}</button>
           <button class="danger" data-action="delete-account" ${state.userToken ? "" : "disabled"}>${t("deleteAccount")}</button>
         </div>
+      </div>
+    `;
+  }
+
+  function privacyPanel() {
+    return `
+      <div class="sidebar-section">
+        <div class="section-title">${t("privacySettings")}</div>
+        <label class="checkbox-field">
+          <input type="checkbox" data-action="hide-codes-default" ${state.hideCodesByDefault ? "checked" : ""} />
+          <span>${t("hideCodesByDefault")}</span>
+        </label>
+        <div class="muted">${t("idleLockInfo")}</div>
       </div>
     `;
   }
@@ -1496,7 +1574,7 @@
 
   function entryView(entry) {
     const code = state.otpCodes.get(entry.id) || "------";
-    const revealed = state.revealedEntryIds.has(entry.id);
+    const revealed = isCodeVisible(entry.id);
     const isTrash = Boolean(entry.deletedAt);
     return `
       <article class="entry ${state.editingId === entry.id ? "selected" : ""} ${entry.pinned ? "pinned" : ""} ${isTrash ? "deleted" : ""}" ${isTrash ? "" : `data-entry-id="${entry.id}"`}>
@@ -1515,10 +1593,10 @@
                     <button class="danger" data-action="delete-entry-permanent" data-id="${entry.id}">${t("deleteForever")}</button>
                   `
                   : `
-                    <button class="otp otp-toggle" type="button" data-action="toggle-code" data-id="${entry.id}" aria-label="${revealed ? t("hideCode") : t("showCode")}">
+                    <button class="otp otp-toggle" type="button" data-action="toggle-code" data-id="${entry.id}" data-otp-id="${entry.id}" aria-label="${revealed ? t("hideCode") : t("showCode")}">
                       ${escapeHtml(revealed ? code : "******")}
                     </button>
-                    <button class="icon-button" data-action="copy" data-id="${entry.id}">${state.copiedId === entry.id ? t("copied") : t("copy")}</button>
+                    <button class="icon-button" data-action="copy" data-id="${entry.id}" data-copy-id="${entry.id}">${state.copiedId === entry.id ? t("copied") : t("copy")}</button>
                     <button class="icon-button" data-action="toggle-pin" data-id="${entry.id}">${entry.pinned ? t("unpin") : t("pin")}</button>
                     ${entry.type === "HOTP" ? `<button class="icon-button" data-action="next-hotp" data-id="${entry.id}">${t("next")}</button>` : ""}
                   `
@@ -1816,11 +1894,48 @@
       state.userToken = payload.token;
       state.user = payload.user;
       state.message = "";
+      state.locked = false;
+      state.lockMessage = "";
+      state.lastActivityAt = Date.now();
       await loadUserData();
       render();
     } catch (error) {
       setMessage(error.status === 409 ? t("userExists") : error.status === 401 ? t("invalidLogin") : t("serverError"));
     }
+  }
+
+  async function handleUnlock(form) {
+    const password = String(new FormData(form).get("password") || "");
+    if (!password) return setMessage(t("required"));
+    try {
+      const payload = await api(
+        "/api/auth/login",
+        { method: "POST", body: JSON.stringify({ email: state.user?.email || "", password }) },
+        "",
+      );
+      state.userToken = payload.token;
+      state.user = payload.user;
+      state.locked = false;
+      state.lockMessage = "";
+      state.message = "";
+      state.lastActivityAt = Date.now();
+      await loadUserData();
+      render();
+    } catch (error) {
+      setMessage(error.status === 401 ? t("invalidLogin") : t("serverError"));
+    }
+  }
+
+  function lockUserApp(messageKey = "lockedHint") {
+    if (!state.userToken || state.route !== "app") return;
+    stopQrScanner();
+    state.locked = true;
+    state.lockMessage = messageKey;
+    state.otpCodes = new Map();
+    state.revealedEntryIds = new Set();
+    state.copiedId = "";
+    state.copyMessage = "";
+    render();
   }
 
   async function handleAdminAuth(form) {
@@ -2197,10 +2312,14 @@
     if (!code || code === "------") return;
     await navigator.clipboard.writeText(code);
     state.copiedId = id;
+    state.copyMessage = t("codeCopied");
     renderOtpCodes();
+    render();
     setTimeout(() => {
       state.copiedId = "";
+      state.copyMessage = "";
       renderOtpCodes();
+      render();
     }, 1200);
   }
 
@@ -2327,6 +2446,7 @@
     event.preventDefault();
     const formId = event.target.getAttribute("id");
     if (formId === "auth-form") await handleAuth(event.target);
+    if (formId === "unlock-form") await handleUnlock(event.target);
     if (formId === "admin-auth-form") await handleAdminAuth(event.target);
     if (formId === "entry-form") await handleEntrySave(event.target);
     if (formId === "pat-form") await handlePatCreate(event.target);
@@ -2379,6 +2499,7 @@
       state.editingId = null;
       render();
     }
+    if (action === "lock-now") lockUserApp("lockedHint");
     if (action === "sync-now") await syncNow();
     if (action === "clear-edit") {
       state.editingId = null;
@@ -2499,6 +2620,13 @@
       render();
       return;
     }
+    if (event.target.dataset.action === "hide-codes-default") {
+      state.hideCodesByDefault = event.target.checked;
+      localStorage.setItem(hideCodesStorageKey, state.hideCodesByDefault ? "true" : "false");
+      state.revealedEntryIds = new Set();
+      render();
+      return;
+    }
     if (event.target.dataset.action === "import-file" && event.target.files[0]) {
       await readImportFile(event.target.files[0]);
     }
@@ -2510,8 +2638,19 @@
 
   window.addEventListener("popstate", render);
   setInterval(() => {
-    if (state.entries.length) refreshOtpCodes();
+    if (state.entries.length && !state.locked) refreshOtpCodes();
+    if (state.userToken && state.route === "app" && !state.locked && Date.now() - state.lastActivityAt > idleLockMs) {
+      lockUserApp("autoLocked");
+    }
   }, 1000);
+
+  ["click", "keydown", "input", "pointerdown", "touchstart"].forEach((eventName) => {
+    window.addEventListener(eventName, () => {
+      if (state.userToken && state.route === "app" && !state.locked) {
+        state.lastActivityAt = Date.now();
+      }
+    }, { passive: true });
+  });
 
   window.addEventListener("online", async () => {
     state.online = true;

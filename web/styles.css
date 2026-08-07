@@ -523,7 +523,7 @@ textarea {
 .user-utility-grid {
   display: grid;
   gap: 18px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   padding: 0;
 }
 
@@ -558,6 +558,32 @@ textarea {
 
 .settings-actions {
   margin-top: 12px;
+}
+
+.session-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.session-list > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.session-list strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.copy-feedback {
+  color: #1a8f4b;
+  font-weight: 700;
+}
+
+.lock-hint {
+  margin-bottom: 12px;
 }
 
 .pwa-panel {
