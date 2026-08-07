@@ -337,7 +337,7 @@
   function base32ToBytes(secret) {
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     const normalized = normalizeSecret(secret);
-    if (normalized.length < 8) throw new Error("invalid base32");
+    if (normalized.length < 8 || [1, 3, 6].includes(normalized.length % 8)) throw new Error("invalid base32");
     let bits = "";
     for (const char of normalized) {
       const value = alphabet.indexOf(char);
@@ -350,6 +350,7 @@
     for (let i = 0; i + 8 <= bits.length; i += 8) {
       bytes.push(parseInt(bits.slice(i, i + 8), 2));
     }
+    if (bits.slice(bytes.length * 8).includes("1")) throw new Error("invalid base32");
     return new Uint8Array(bytes);
   }
 
@@ -772,7 +773,7 @@
     const text = String(value || "").trim();
     const uri = text.match(/otpauth:\/\/[^\s]+/i)?.[0];
     if (uri) return uri;
-    const labeled = text.match(/(?:totp|otp|secret|key)\s*[:=]\s*([A-Z2-7][A-Z2-7\s-]{7,})/i)?.[1];
+    const labeled = text.match(/(?:totp|otp)(?:\s+(?:secret|key))?\s*[:=]\s*([A-Z2-7][A-Z2-7\s-]{7,})/i)?.[1];
     return labeled || (allowRaw ? text : "");
   }
 
