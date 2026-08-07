@@ -113,12 +113,12 @@ function defaultStore() {
 function defaultSiteSettings() {
   return {
     siteName: "VaultOTP",
-    seoTitle: "VaultOTP - Self-hosted 2FA manager",
-    seoKeywords: "VaultOTP, 2FA, TOTP, HOTP, self-hosted authenticator",
-    seoDescription: "VaultOTP is a self-hosted 2FA management platform for teams that need a web app, admin controls, API access, and browser extension workflows.",
+    seoTitle: "VaultOTP",
+    seoKeywords: "VaultOTP, 2FA, TOTP, HOTP",
+    seoDescription: "VaultOTP saves and manages 2FA verification codes.",
     logo: "",
     ogTitle: "VaultOTP",
-    ogDescription: "A self-hosted 2FA manager with user vaults, admin review, PAT API access, imports, and browser extension support.",
+    ogDescription: "Save and manage 2FA verification codes.",
     allowPublicIndexing: true,
   };
 }
@@ -196,6 +196,7 @@ function safeJsonForScript(value) {
 }
 
 function publicPageConfig(pathname) {
+  if (/^\/2fa\/[A-Z2-7=\s-]+$/i.test(pathname)) return { path: "/", key: "publicHome" };
   return publicPages().find((page) => page.path === pathname) || null;
 }
 
@@ -203,6 +204,425 @@ function publicPageLinks(origin, locale) {
   return publicPages()
     .map((page) => `<a href="${origin}${page.path}${locale === "en" ? "?lang=en" : ""}">{{${page.key}}}</a>`)
     .join("");
+}
+
+function publicTotpTool(locale, directSecret) {
+  const labels =
+    locale === "en"
+      ? {
+          singleTitle: "Generate one code",
+          singleSecret: "Enter 2FA Secret",
+          generate: "Generate",
+          singleHint: "This only generates a code and does not save it.",
+          remaining: "Remaining",
+          title: "Offline 2FA manager",
+          notice: "Guest data is saved in this browser cache. Clearing browser data or switching devices may delete it. Registered users can save and use codes permanently for free.",
+          remark: "Account note",
+          secret: "Base32 secret",
+          add: "Add manually",
+          scan: "Import QR image",
+          backup: "Export backup",
+          empty: "No accounts yet. Add manually or import a QR image.",
+          qrUnsupported: "Cannot read this QR image",
+          copied: "Copied",
+          secretCopied: "Secret copied",
+          deleted: "Deleted",
+          invalid: "Invalid secret",
+          backupEmpty: "No data to export",
+          deleteConfirm: "Delete this account?",
+          copySecret: "Copy secret",
+          delete: "Delete",
+        }
+      : {
+          singleTitle: "输入生成验证码",
+          singleSecret: "输入 2FA Secret",
+          generate: "生成",
+          singleHint: "这里只生成验证码，不保存数据。",
+          remaining: "剩余",
+          title: "2FA 离线管理",
+          notice: "游客数据保存在当前浏览器缓存中，清理浏览器缓存或更换设备可能被删除。注册用户可永久免费保存和使用。",
+          remark: "账号备注",
+          secret: "密钥（Base32）",
+          add: "手动添加",
+          scan: "识别二维码图片",
+          backup: "全量备份",
+          empty: "暂无账户，请手动添加或导入二维码图片。",
+          qrUnsupported: "无法识别这个二维码",
+          copied: "已复制",
+          secretCopied: "私钥已复制",
+          deleted: "已删除",
+          invalid: "密钥格式不正确",
+          backupEmpty: "暂无数据可导出",
+          deleteConfirm: "确定删除这个账户吗？",
+          copySecret: "复制私钥",
+          delete: "删除",
+        };
+  return `
+    <section class="public-totp" data-direct-secret="${escapeHtml(directSecret)}">
+      <div class="public-single-tool">
+        <h2>${escapeHtml(labels.singleTitle)}</h2>
+        <form id="public-single-form" class="public-totp-form">
+          <input id="public-single-secret" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(labels.singleSecret)}" value="${escapeHtml(directSecret)}" />
+          <button type="submit">${escapeHtml(labels.generate)}</button>
+        </form>
+        <div class="public-single-result">
+          <button id="public-single-code" class="public-totp-code" type="button"></button>
+          <span id="public-single-time" class="muted"></span>
+          <p>${escapeHtml(labels.singleHint)}</p>
+        </div>
+      </div>
+      <h2>${escapeHtml(labels.title)}</h2>
+      <p class="public-cache-notice">${escapeHtml(labels.notice)}</p>
+      <form id="public-totp-form" class="public-totp-form">
+        <input id="public-totp-remark" name="remark" autocomplete="off" placeholder="${escapeHtml(labels.remark)}" />
+        <input id="public-totp-secret" name="secret" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(labels.secret)}" />
+        <button type="submit">${escapeHtml(labels.add)}</button>
+      </form>
+      <div class="public-totp-actions">
+        <button id="public-totp-scan" type="button">${escapeHtml(labels.scan)}</button>
+        <button id="public-totp-backup" type="button">${escapeHtml(labels.backup)}</button>
+        <input id="public-totp-file" type="file" accept="image/*" hidden />
+      </div>
+      <div id="public-totp-list" class="public-totp-list" aria-live="polite"></div>
+      <div id="public-totp-toast" class="public-totp-toast"></div>
+    </section>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script>
+      (() => {
+        const labels = ${safeJsonForScript(labels)};
+        const storageKey = "vaultotp.public.2fa.accounts";
+        const singleForm = document.getElementById("public-single-form");
+        const singleSecret = document.getElementById("public-single-secret");
+        const singleCode = document.getElementById("public-single-code");
+        const singleTime = document.getElementById("public-single-time");
+        const form = document.getElementById("public-totp-form");
+        const remarkInput = document.getElementById("public-totp-remark");
+        const secretInput = document.getElementById("public-totp-secret");
+        const fileInput = document.getElementById("public-totp-file");
+        const scanButton = document.getElementById("public-totp-scan");
+        const backupButton = document.getElementById("public-totp-backup");
+        const list = document.getElementById("public-totp-list");
+        const toast = document.getElementById("public-totp-toast");
+        let accounts = loadAccounts();
+
+        function loadAccounts() {
+          try {
+            const parsed = JSON.parse(localStorage.getItem(storageKey) || "[]");
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        }
+
+        function saveAccounts() {
+          localStorage.setItem(storageKey, JSON.stringify(accounts));
+        }
+
+        function showToast(text) {
+          toast.textContent = text;
+          toast.classList.add("visible");
+          setTimeout(() => toast.classList.remove("visible"), 1400);
+        }
+
+        function base32Bytes(secret) {
+          const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+          const normalized = String(secret || "").toUpperCase().replace(/[\\s=-]/g, "");
+          if (normalized.length < 8) throw new Error("invalid");
+          let bits = "";
+          for (const char of normalized) {
+            const value = alphabet.indexOf(char);
+            if (value === -1) throw new Error("invalid");
+            bits += value.toString(2).padStart(5, "0");
+          }
+          const bytes = [];
+          for (let index = 0; index + 8 <= bits.length; index += 8) {
+            bytes.push(parseInt(bits.slice(index, index + 8), 2));
+          }
+          return new Uint8Array(bytes);
+        }
+
+        function toBase32(bytes) {
+          const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+          let bits = 0;
+          let value = 0;
+          let output = "";
+          for (const byte of bytes) {
+            value = (value << 8) | byte;
+            bits += 8;
+            while (bits >= 5) {
+              output += alphabet[(value >>> (bits - 5)) & 31];
+              bits -= 5;
+            }
+          }
+          if (bits > 0) output += alphabet[(value << (5 - bits)) & 31];
+          return output;
+        }
+
+        async function codeForSecret(secret) {
+          const key = await crypto.subtle.importKey("raw", base32Bytes(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+          const counter = Math.floor(Date.now() / 1000 / 30);
+          const counterBytes = new ArrayBuffer(8);
+          const view = new DataView(counterBytes);
+          view.setUint32(4, counter);
+          const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, counterBytes));
+          const offset = digest[digest.length - 1] & 15;
+          const binary = ((digest[offset] & 127) << 24) | ((digest[offset + 1] & 255) << 16) | ((digest[offset + 2] & 255) << 8) | (digest[offset + 3] & 255);
+          return String(binary % 1000000).padStart(6, "0");
+        }
+
+        function parseOtpAuth(value) {
+          const text = String(value || "").trim();
+          if (!text) return [];
+          if (text.includes("otpauth-migration://")) return parseMigration(text);
+          if (/^[A-Z2-7=\\s-]{8,}$/i.test(text)) return [{ remark: labels.remark, secret: text }];
+          const url = new URL(text);
+          if (url.protocol !== "otpauth:") throw new Error("invalid");
+          const label = decodeURIComponent(url.pathname.replace(/^\\//, ""));
+          const issuer = url.searchParams.get("issuer") || "";
+          const account = label.includes(":") ? label.split(":").slice(1).join(":") : label;
+          const secret = url.searchParams.get("secret") || "";
+          return [{ remark: issuer ? issuer + (account ? " (" + account + ")" : "") : account || labels.remark, secret }];
+        }
+
+        function parseMigration(text) {
+          const data = new URL(text).searchParams.get("data");
+          if (!data) return [];
+          const binary = atob(decodeURIComponent(data));
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+          const entries = [];
+          let index = 0;
+
+          function readVarint() {
+            let shift = 0;
+            let result = 0;
+            while (index < bytes.length) {
+              const byte = bytes[index++];
+              result |= (byte & 127) << shift;
+              if (!(byte & 128)) break;
+              shift += 7;
+            }
+            return result;
+          }
+
+          while (index < bytes.length) {
+            const key = readVarint();
+            const field = key >> 3;
+            const wire = key & 7;
+            if (field === 1 && wire === 2) {
+              const end = index + readVarint();
+              let secret = "";
+              let name = "";
+              let issuer = "";
+              while (index < end) {
+                const innerKey = readVarint();
+                const innerField = innerKey >> 3;
+                const innerWire = innerKey & 7;
+                if (innerWire === 2) {
+                  const length = readVarint();
+                  const value = bytes.slice(index, index + length);
+                  index += length;
+                  if (innerField === 1) secret = toBase32(value);
+                  if (innerField === 2) name = new TextDecoder().decode(value);
+                  if (innerField === 3) issuer = new TextDecoder().decode(value);
+                } else if (innerWire === 0) {
+                  readVarint();
+                } else {
+                  break;
+                }
+              }
+              if (secret) entries.push({ remark: issuer ? issuer + (name ? " (" + name + ")" : "") : name || labels.remark, secret });
+            } else if (wire === 0) {
+              readVarint();
+            } else if (wire === 2) {
+              index += readVarint();
+            } else if (wire === 1) {
+              index += 8;
+            } else if (wire === 5) {
+              index += 4;
+            } else {
+              break;
+            }
+          }
+          return entries;
+        }
+
+        function addAccount(remark, secret) {
+          const normalized = String(secret || "").toUpperCase().replace(/[\\s=-]/g, "");
+          base32Bytes(normalized);
+          accounts.push({ id: Date.now() + Math.random(), remark: String(remark || labels.remark).trim() || labels.remark, secret: normalized });
+          saveAccounts();
+          renderAccounts();
+        }
+
+        function addParsedValues(values) {
+          let count = 0;
+          for (const value of values) {
+            for (const entry of parseOtpAuth(value)) {
+              addAccount(entry.remark, entry.secret);
+              count++;
+            }
+          }
+          return count;
+        }
+
+        async function detectQrFile(file) {
+          const image = await createImageBitmap(file);
+          try {
+            if ("BarcodeDetector" in window) {
+              const detector = new BarcodeDetector({ formats: ["qr_code"] });
+              const codes = await detector.detect(image);
+              if (codes.length) return codes.map((code) => code.rawValue);
+            }
+            if (!window.jsQR) throw new Error("unsupported");
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            canvas.width = image.width;
+            canvas.height = image.height;
+            ctx.drawImage(image, 0, 0);
+            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            let qr = jsQR(imageData.data, canvas.width, canvas.height);
+            if (qr?.data) return [qr.data];
+
+            const size = Math.floor(Math.min(image.width, image.height) * 0.82);
+            const x = Math.floor((image.width - size) / 2);
+            const y = Math.floor((image.height - size) / 2);
+            canvas.width = size;
+            canvas.height = size;
+            ctx.drawImage(image, x, y, size, size, 0, 0, size, size);
+            imageData = ctx.getImageData(0, 0, size, size);
+            qr = jsQR(imageData.data, size, size);
+            if (qr?.data) return [qr.data];
+            throw new Error("not_found");
+          } finally {
+            image.close?.();
+          }
+        }
+
+        async function renderAccounts() {
+          if (!accounts.length) {
+            list.innerHTML = '<div class="empty">' + labels.empty + '</div>';
+            return;
+          }
+          const timeLeft = 30 - (Math.floor(Date.now() / 1000) % 30);
+          const rows = await Promise.all(
+            accounts.map(async (account) => {
+              let code = "ERROR";
+              try {
+                code = await codeForSecret(account.secret);
+              } catch {}
+              return '<article class="public-totp-card" data-id="' + account.id + '">' +
+                '<div class="remark" title="' + escapeHtml(account.remark) + '">' + escapeHtml(account.remark) + '</div>' +
+                '<button class="public-totp-code" type="button" data-copy-code="' + account.id + '">' + code + '</button>' +
+                '<div class="progress-container"><div class="progress-bar" style="width:' + ((timeLeft / 30) * 100) + '%"></div></div>' +
+                '<div class="card-tools">' +
+                  '<button type="button" data-copy-secret="' + account.id + '">' + labels.copySecret + '</button>' +
+                  '<button type="button" data-delete-account="' + account.id + '">' + labels.delete + '</button>' +
+                '</div>' +
+              '</article>';
+            }),
+          );
+          list.innerHTML = rows.join("");
+        }
+
+        async function renderSingleCode() {
+          const secret = singleSecret.value.trim();
+          if (!secret) {
+            singleCode.textContent = "";
+            singleTime.textContent = "";
+            return;
+          }
+          try {
+            singleCode.textContent = await codeForSecret(secret);
+            singleTime.textContent = labels.remaining + " " + String(30 - (Math.floor(Date.now() / 1000) % 30)) + "s";
+          } catch {
+            singleCode.textContent = "";
+            singleTime.textContent = labels.invalid;
+          }
+        }
+
+        singleForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          renderSingleCode();
+        });
+        singleCode.addEventListener("click", async () => {
+          if (!singleCode.textContent) return;
+          await navigator.clipboard.writeText(singleCode.textContent);
+          showToast(labels.copied);
+        });
+
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          try {
+            addAccount(remarkInput.value, secretInput.value);
+            remarkInput.value = "";
+            secretInput.value = "";
+          } catch {
+            showToast(labels.invalid);
+          }
+        });
+        scanButton.addEventListener("click", () => fileInput.click());
+        fileInput.addEventListener("change", async () => {
+          const file = fileInput.files?.[0];
+          if (!file) return;
+          try {
+            const values = await detectQrFile(file);
+            const count = addParsedValues(values);
+            showToast(count ? labels.copied : labels.qrUnsupported);
+          } catch {
+            showToast(labels.qrUnsupported);
+          } finally {
+            fileInput.value = "";
+          }
+        });
+        backupButton.addEventListener("click", () => {
+          if (!accounts.length) return showToast(labels.backupEmpty);
+          const blob = new Blob([JSON.stringify(accounts, null, 2)], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = "vaultotp-guest-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+          link.click();
+          URL.revokeObjectURL(url);
+        });
+        list.addEventListener("click", async (event) => {
+          const codeId = event.target.dataset.copyCode;
+          const secretId = event.target.dataset.copySecret;
+          const deleteId = event.target.dataset.deleteAccount;
+          const account = accounts.find((item) => String(item.id) === String(codeId || secretId || deleteId));
+          if (!account) return;
+          if (codeId) {
+            await navigator.clipboard.writeText(event.target.textContent);
+            showToast(labels.copied);
+          }
+          if (secretId) {
+            await navigator.clipboard.writeText(account.secret);
+            showToast(labels.secretCopied);
+          }
+          if (deleteId && confirm(labels.deleteConfirm)) {
+            accounts = accounts.filter((item) => item !== account);
+            saveAccounts();
+            showToast(labels.deleted);
+            renderAccounts();
+          }
+        });
+        if (singleSecret.value.trim()) renderSingleCode();
+        renderAccounts();
+        setInterval(() => {
+          renderSingleCode();
+          renderAccounts();
+        }, 1000);
+
+        function escapeHtml(value) {
+          return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+        }
+      })();
+    </script>
+  `;
 }
 
 async function renderPublicPage(request, requestUrl, response, pathname) {
@@ -217,6 +637,7 @@ async function renderPublicPage(request, requestUrl, response, pathname) {
   const title = settings.seoTitle || settings.siteName;
   const description = settings.seoDescription;
   const canonical = `${origin}${pathname}`;
+  const directSecret = pathname.startsWith("/2fa/") ? pathname.slice(5) : "";
   const robots = settings.allowPublicIndexing ? "index, follow" : "noindex, nofollow";
   const schema = {
     "@context": "https://schema.org",
@@ -265,6 +686,7 @@ async function renderPublicPage(request, requestUrl, response, pathname) {
               <a class="ghost public-link" href="/docs${locale === "en" ? "?lang=en" : ""}">${escapeHtml(t("publicReadDocs"))}</a>
             </div>
           </section>
+          ${page.key === "publicHome" ? publicTotpTool(locale, directSecret) : ""}
           <section class="public-grid">
             <article><h2>${escapeHtml(t("publicPointUserTitle"))}</h2><p>${escapeHtml(t("publicPointUserBody"))}</p></article>
             <article><h2>${escapeHtml(t("publicPointAdminTitle"))}</h2><p>${escapeHtml(t("publicPointAdminBody"))}</p></article>

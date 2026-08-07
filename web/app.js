@@ -1013,15 +1013,8 @@
     app.innerHTML = `
       <section class="auth-panel">
         <div class="brand-row">
-          <div>
-            <div class="brand">${t("authTitle")}</div>
-            <div class="muted">${t("authSubtitle")}</div>
-          </div>
+          <div class="brand">${t("authTitle")}</div>
           ${languageSwitch()}
-        </div>
-        <div class="tabs">
-          <button class="tab ${state.authMode === "login" ? "active" : ""}" data-auth-mode="login">${t("login")}</button>
-          <button class="tab ${state.authMode === "register" ? "active" : ""}" data-auth-mode="register">${t("register")}</button>
         </div>
         <form id="auth-form">
           <div class="field">
@@ -1041,11 +1034,13 @@
               : ""
           }
           <div class="error">${escapeHtml(state.message)}</div>
-          <button class="primary" type="submit">${state.authMode === "login" ? t("loginAction") : t("createAccount")}</button>
+          <div class="auth-actions">
+            <button class="primary" type="submit">${state.authMode === "login" ? t("loginAction") : t("createAccount")}</button>
+            <button class="ghost" type="button" data-auth-mode="${state.authMode === "login" ? "register" : "login"}">
+              ${state.authMode === "login" ? t("register") : t("login")}
+            </button>
+          </div>
         </form>
-        <div class="auth-switch">
-          <button class="ghost" type="button" data-route="admin">${t("adminEntry")}</button>
-        </div>
       </section>
     `;
   }
@@ -1058,15 +1053,9 @@
         <div class="brand-row">
           <div>
             <div class="brand">${t("adminTitle")}</div>
-            <div class="muted">${setupMode ? t("adminCreateHint") : t("adminLoginHint")}</div>
+            ${setupMode ? `<div class="muted">${t("adminCreateHint")}</div>` : ""}
           </div>
-          <div class="inline-actions">
-            ${languageSwitch()}
-            <button class="ghost" type="button" data-route="app">${t("adminBackToUser")}</button>
-          </div>
-        </div>
-        <div class="tabs">
-          <button class="tab active" disabled>${setupMode ? t("adminSetupTitle") : t("adminLoginTitle")}</button>
+          ${languageSwitch()}
         </div>
         <form id="admin-auth-form">
           <div class="field">
@@ -1096,8 +1085,8 @@
     app.className = "screen";
     const entries = filteredEntries();
     app.innerHTML = `
-      <div class="layout">
-        <aside class="sidebar">
+      <div class="layout user-layout">
+        <aside class="sidebar user-sidebar">
           <div class="brand-row">
             <div>
               <div class="brand">${t("authTitle")}</div>
@@ -1105,22 +1094,12 @@
             </div>
             ${languageSwitch()}
           </div>
-          <div class="field">
-            <label for="search">${t("search")}</label>
-            <input id="search" value="${escapeHtml(state.search)}" />
-          </div>
-          <div class="inline-actions sidebar-actions">
-            <button class="primary" data-action="new-entry">${t("addEntry")}</button>
-            <button class="ghost" data-action="open-import">${t("importEntries")}</button>
-          </div>
           <div class="group-list">
             ${groupButton("all", t("allGroups"), state.entries.length)}
             ${state.groups.map((group) => groupButton(group.id, group.name, countGroup(group.id))).join("")}
           </div>
-          ${pwaPanel()}
-          ${patPanel()}
         </aside>
-        <main class="content">
+        <main class="content user-content">
           <header class="topbar">
             <div>
               <strong>${escapeHtml(state.user?.email || "")}</strong>
@@ -1131,13 +1110,27 @@
               <button class="danger" data-action="delete-account" ${state.userToken ? "" : "disabled"}>${t("deleteAccount")}</button>
             </div>
           </header>
+          <section class="user-toolbar">
+            <div class="field user-search">
+              <label for="search">${t("search")}</label>
+              <input id="search" value="${escapeHtml(state.search)}" />
+            </div>
+            <div class="inline-actions">
+              <button class="primary" data-action="open-import">${t("importEntries")}</button>
+              <button class="ghost" data-action="new-entry">${t("addEntry")}</button>
+            </div>
+          </section>
           <section class="entry-list">
             ${entries.length ? entries.map(entryView).join("") : `<div class="empty">${t("noEntries")}</div>`}
           </section>
+          <section class="user-form-section">
+            ${entryForm()}
+          </section>
+          <section class="user-utility-grid">
+            ${pwaPanel()}
+            ${patPanel()}
+          </section>
         </main>
-        <aside class="inspector">
-          ${entryForm()}
-        </aside>
       </div>
       ${state.importOpen ? importPanel() : ""}
     `;
@@ -1311,7 +1304,7 @@
       <article class="entry ${state.editingId === entry.id ? "selected" : ""}" data-entry-id="${entry.id}">
         <div class="entry-main">
           <div class="entry-title">
-            <strong>${escapeHtml(entry.icon || "")} ${escapeHtml(entry.issuer)}</strong>
+            <strong>${escapeHtml(entry.issuer)}</strong>
             <span class="muted">${escapeHtml(entry.account)}</span>
           </div>
           <div class="entry-actions">
@@ -1363,58 +1356,53 @@
           <label>${t("secret")}</label>
           <input name="secret" ${isEditing ? "" : "required"} placeholder="${isEditing ? t("hiddenByDefault") : ""}" />
         </div>
-        <div class="form-row">
-          <div class="field">
-            <label>${t("type")}</label>
-            <select name="type">
-              <option value="TOTP" ${data.type === "TOTP" ? "selected" : ""}>TOTP</option>
-              <option value="HOTP" ${data.type === "HOTP" ? "selected" : ""}>HOTP</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>${t("algorithm")}</label>
-            <select name="algorithm">
-              ${["SHA-1", "SHA-256", "SHA-512"].map((algorithm) => `<option value="${algorithm}" ${data.algorithm === algorithm ? "selected" : ""}>${algorithm}</option>`).join("")}
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="field">
-            <label>${t("digits")}</label>
-            <select name="digits">
-              <option value="6" ${Number(data.digits) === 6 ? "selected" : ""}>6</option>
-              <option value="8" ${Number(data.digits) === 8 ? "selected" : ""}>8</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>${t("period")}</label>
-            <input name="period" type="number" min="10" value="${escapeHtml(data.period)}" />
-          </div>
-          <div class="field">
-            <label>${t("counter")}</label>
-            <input name="counter" type="number" min="0" value="${escapeHtml(data.counter)}" />
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="field">
-            <label>${t("group")}</label>
-            <select name="groupId">
-              ${state.groups.map((group) => `<option value="${group.id}" ${data.groupId === group.id ? "selected" : ""}>${escapeHtml(group.name)}</option>`).join("")}
-            </select>
-          </div>
-          <div class="field">
-            <label>${t("newGroup")}</label>
-            <input name="newGroup" />
-          </div>
-        </div>
         <div class="field">
-          <label>${t("icon")}</label>
-          <input name="icon" maxlength="8" value="${escapeHtml(data.icon)}" />
+          <label>${t("group")}</label>
+          <select name="groupId">
+            ${state.groups.map((group) => `<option value="${group.id}" ${data.groupId === group.id ? "selected" : ""}>${escapeHtml(group.name)}</option>`).join("")}
+          </select>
         </div>
-        <div class="field">
-          <label>${t("note")}</label>
-          <textarea name="note">${escapeHtml(data.note)}</textarea>
-        </div>
+        <details class="advanced-options">
+          <summary>${t("advancedOptions")}</summary>
+          <div class="form-grid advanced-grid">
+            <div class="field">
+              <label>${t("type")}</label>
+              <select name="type">
+                <option value="TOTP" ${data.type === "TOTP" ? "selected" : ""}>TOTP</option>
+                <option value="HOTP" ${data.type === "HOTP" ? "selected" : ""}>HOTP</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>${t("algorithm")}</label>
+              <select name="algorithm">
+                ${["SHA-1", "SHA-256", "SHA-512"].map((algorithm) => `<option value="${algorithm}" ${data.algorithm === algorithm ? "selected" : ""}>${algorithm}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label>${t("digits")}</label>
+              <select name="digits">
+                <option value="6" ${Number(data.digits) === 6 ? "selected" : ""}>6</option>
+                <option value="8" ${Number(data.digits) === 8 ? "selected" : ""}>8</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>${t("period")}</label>
+              <input name="period" type="number" min="10" value="${escapeHtml(data.period)}" />
+            </div>
+            <div class="field">
+              <label>${t("counter")}</label>
+              <input name="counter" type="number" min="0" value="${escapeHtml(data.counter)}" />
+            </div>
+            <div class="field">
+              <label>${t("newGroup")}</label>
+              <input name="newGroup" />
+            </div>
+            <div class="field advanced-note">
+              <label>${t("note")}</label>
+              <textarea name="note">${escapeHtml(data.note)}</textarea>
+            </div>
+          </div>
+        </details>
         <div class="error">${escapeHtml(state.message)}</div>
         <div class="inline-actions">
           <button class="primary" type="submit">${t("save")}</button>
@@ -1434,7 +1422,7 @@
           </div>
           <div class="field">
             <label>${t("chooseFile")}</label>
-            <input type="file" data-action="import-file" accept=".txt,.json,.csv,.2fas,.aegis" />
+            <input type="file" data-action="import-file" accept=".txt,.json,.csv,.2fas,.aegis,image/*" />
           </div>
           <div class="field">
             <label>${t("importSource")}</label>
@@ -1672,7 +1660,6 @@
         counter: Number(data.get("counter") || 0),
         groupId,
         note: String(data.get("note") || "").trim(),
-        icon: String(data.get("icon") || "").trim().slice(0, 8),
       };
       if (secret) {
         body.encryptedSecret = await encryptSecret(secret);
@@ -1748,7 +1735,7 @@
 
   async function readImportFile(file) {
     try {
-      state.importText = await file.text();
+      state.importText = file.type.startsWith("image/") ? await readQrImportFile(file) : await file.text();
       state.importMessage = "";
       state.importItems = previewImportItems(parseImportPayload(state.importText));
     } catch {
@@ -1756,6 +1743,20 @@
       state.importMessage = t("importFileUnsupported");
     }
     render();
+  }
+
+  async function readQrImportFile(file) {
+    if (!("BarcodeDetector" in window)) throw new Error("barcode_detector_unavailable");
+    const image = await createImageBitmap(file);
+    try {
+      const detector = new BarcodeDetector({ formats: ["qr_code"] });
+      const codes = await detector.detect(image);
+      const values = codes.map((code) => code.rawValue).filter(Boolean);
+      if (!values.length) throw new Error("qr_not_found");
+      return values.join("\n");
+    } finally {
+      image.close?.();
+    }
   }
 
   function setMessage(message) {
