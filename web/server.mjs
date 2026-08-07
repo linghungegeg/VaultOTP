@@ -533,7 +533,7 @@ async function handleApi(request, response, pathname) {
       return;
     }
     const pats = store.pats.filter((item) => item.userId === ctx.user.id && !item.revokedAt).map(publicPat);
-    jsonResponse(response, 200, { role: "user", user: publicUser(ctx.user), patCount: pats.length });
+    jsonResponse(response, 200, { role: "user", authType: ctx.authType || "session", user: publicUser(ctx.user), patCount: pats.length });
     return;
   }
 

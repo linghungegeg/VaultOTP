@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "VaultOTP",
+  "version": "0.5.0",
+  "description": "VaultOTP browser extension for PAT-backed OTP access.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "VaultOTP"
+  },
+  "permissions": ["activeTab", "clipboardWrite", "scripting", "storage"],
+  "host_permissions": ["https://*/*", "http://127.0.0.1/*", "http://localhost/*"]
+}

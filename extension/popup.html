@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VaultOTP</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <section class="section">
+        <div class="title-row">
+          <h1>VaultOTP</h1>
+          <button id="save-settings" type="button">保存</button>
+        </div>
+        <label class="field">
+          <span>服务地址</span>
+          <input id="service-url" autocomplete="off" placeholder="https://vault.example.com" />
+        </label>
+        <label class="field">
+          <span>Personal Access Token</span>
+          <input id="pat" autocomplete="off" type="password" />
+        </label>
+        <div id="message" class="message"></div>
+      </section>
+
+      <section class="section">
+        <div class="title-row">
+          <h2>条目</h2>
+          <button id="refresh-entries" type="button">刷新</button>
+        </div>
+        <input id="search" autocomplete="off" placeholder="搜索服务或账号" />
+        <div id="entries" class="entry-list"></div>
+      </section>
+
+      <section class="section">
+        <div class="title-row">
+          <h2>导入</h2>
+          <button id="scan-page" type="button">检测当前页</button>
+        </div>
+        <textarea id="import-text" placeholder="粘贴 otpauth:// URI，一行一个"></textarea>
+        <div class="button-row">
+          <button id="preview-import" type="button">预览</button>
+          <button id="import-valid" type="button">导入可用项</button>
+        </div>
+        <div id="import-preview" class="import-preview"></div>
+      </section>
+    </main>
+    <script src="./popup.js"></script>
+  </body>
+</html>
