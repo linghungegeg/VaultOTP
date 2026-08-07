@@ -137,7 +137,24 @@ async function loadStore() {
     storeCache = defaultStore();
     await saveStore(storeCache);
   }
+  storeCache = normalizeStore(storeCache);
   return storeCache;
+}
+
+function normalizeStore(store) {
+  return {
+    ...defaultStore(),
+    ...store,
+    crypto: store.crypto || null,
+    admin: store.admin || null,
+    users: Array.isArray(store.users) ? store.users : [],
+    sessions: Array.isArray(store.sessions) ? store.sessions : [],
+    pats: Array.isArray(store.pats) ? store.pats : [],
+    groups: Array.isArray(store.groups) ? store.groups : [],
+    entries: Array.isArray(store.entries) ? store.entries : [],
+    auditLogs: Array.isArray(store.auditLogs) ? store.auditLogs : [],
+    siteSettings: { ...defaultSiteSettings(), ...(store.siteSettings || {}) },
+  };
 }
 
 async function saveStore(store) {
