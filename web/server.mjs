@@ -870,12 +870,15 @@ function publicGroup(group) {
 }
 
 function publicPat(pat) {
+  const status = pat.revokedAt ? "deleted" : pat.disabledAt ? "disabled" : "active";
   return {
     id: pat.id,
     userId: pat.userId,
     name: pat.name,
+    status,
     lastUsedAt: pat.lastUsedAt || null,
     createdAt: pat.createdAt,
+    disabledAt: pat.disabledAt || null,
     revokedAt: pat.revokedAt || null,
   };
 }
@@ -943,7 +946,7 @@ async function resolveAuth(request, store) {
       }
     }
   }
-  const pat = store.pats.find((item) => item.tokenHash === tokenHash && !item.revokedAt);
+  const pat = store.pats.find((item) => item.tokenHash === tokenHash && !item.revokedAt && !item.disabledAt);
   if (pat) {
     const user = findUserById(store, pat.userId);
     if (user && user.status !== "disabled") {
@@ -1205,6 +1208,7 @@ async function handleApi(request, response, pathname, requestUrl) {
       tokenHash: sha256Hex(token),
       createdAt: now(),
       lastUsedAt: null,
+      disabledAt: null,
       revokedAt: null,
     };
     store.pats.push(pat);
@@ -1225,6 +1229,46 @@ async function handleApi(request, response, pathname, requestUrl) {
     pat.name = String(body.name || pat.name).trim();
     await saveStore(store);
     jsonResponse(response, 200, { pat: publicPat(pat) });
+    return;
+  }
+
+  if (/^\/api\/pats\/[0-9a-f]+\/disable$/.test(pathname) && request.method === "POST") {
+    if (!requireUser(ctx, response)) return;
+    const patId = pathname.split("/")[3];
+    const pat = store.pats.find((item) => item.id === patId && item.userId === ctx.user.id);
+    if (!pat || pat.revokedAt) {
+      jsonResponse(response, 404, { error: "not_found" });
+      return;
+    }
+    pat.disabledAt = pat.disabledAt || now();
+    await saveStore(store);
+    jsonResponse(response, 200, { pat: publicPat(pat) });
+    return;
+  }
+
+  if (/^\/api\/pats\/[0-9a-f]+\/rotate$/.test(pathname) && request.method === "POST") {
+    if (!requireUser(ctx, response)) return;
+    const patId = pathname.split("/")[3];
+    const pat = store.pats.find((item) => item.id === patId && item.userId === ctx.user.id);
+    if (!pat || pat.revokedAt) {
+      jsonResponse(response, 404, { error: "not_found" });
+      return;
+    }
+    pat.revokedAt = now();
+    const token = issueToken("pat");
+    const nextPat = {
+      id: uid(),
+      userId: ctx.user.id,
+      name: pat.name,
+      tokenHash: sha256Hex(token),
+      createdAt: now(),
+      lastUsedAt: null,
+      disabledAt: null,
+      revokedAt: null,
+    };
+    store.pats.push(nextPat);
+    await saveStore(store);
+    jsonResponse(response, 201, { pat: publicPat(nextPat), token });
     return;
   }
 
@@ -1429,7 +1473,17 @@ async function handleApi(request, response, pathname, requestUrl) {
       return;
     }
     const code = await codeForEntry(store, entry);
-    jsonResponse(response, 200, { code });
+    const period = entry.type === "TOTP" ? Number(entry.period || 30) : null;
+    const remaining = period ? period - (Math.floor(Date.now() / 1000) % period) : null;
+    jsonResponse(response, 200, {
+      code,
+      type: entry.type,
+      digits: Number(entry.digits || 6),
+      period,
+      remaining,
+      counter: entry.type === "HOTP" ? Number(entry.counter || 0) : null,
+      serverTime: now(),
+    });
     return;
   }
 

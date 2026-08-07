@@ -1611,6 +1611,10 @@
   }
 
   function patPanel() {
+    const sampleEntry = activeEntries()[0];
+    const baseUrl = window.location.origin && window.location.origin !== "null" ? window.location.origin : "https://vault.example.com";
+    const listCommand = `curl -H "Authorization: Bearer ${t("patPlaceholder")}" ${baseUrl}/api/entries`;
+    const codeCommand = `curl -H "Authorization: Bearer ${t("patPlaceholder")}" ${baseUrl}/api/entries/${sampleEntry?.id || "{entryId}"}/code`;
     return `
       <div class="sidebar-section">
         <div class="section-title">${t("pats")}</div>
@@ -1625,17 +1629,29 @@
               ? state.pats
                   .map(
                     (pat) => `
-                      <div class="audit-row">
+                      <div class="audit-row pat-row">
                         <span>${escapeHtml(pat.name)}</span>
-                        <span>${escapeHtml(pat.lastUsedAt || pat.createdAt || "-")}</span>
-                        <button class="ghost" data-action="rename-pat" data-id="${pat.id}">${t("renamePat")}</button>
-                        <button class="danger" data-action="delete-pat" data-id="${pat.id}">${t("deletePat")}</button>
+                        <span class="badge ${pat.status === "active" ? "" : "disabled-badge"}">${t(pat.status || "active")}</span>
+                        <span>${t("createdAt")}: ${escapeHtml(pat.createdAt || "-")}</span>
+                        <span>${t("lastUsed")}: ${escapeHtml(pat.lastUsedAt || "-")}</span>
+                        <button class="ghost" data-action="rename-pat" data-id="${pat.id}" ${pat.status === "active" ? "" : "disabled"}>${t("renamePat")}</button>
+                        <button class="ghost" data-action="rotate-pat" data-id="${pat.id}" ${pat.status === "active" ? "" : "disabled"}>${t("rotatePat")}</button>
+                        <button class="danger" data-action="disable-pat" data-id="${pat.id}" ${pat.status === "active" ? "" : "disabled"}>${t("disablePat")}</button>
+                        <button class="danger" data-action="delete-pat" data-id="${pat.id}" ${pat.status === "deleted" ? "disabled" : ""}>${t("deletePat")}</button>
                       </div>
                     `,
                   )
                   .join("")
               : `<div class="empty">${t("pats")}</div>`
           }
+        </div>
+        <div class="api-help">
+          <div class="section-title">${t("apiUsage")}</div>
+          <div class="muted">${t("apiUsageHint")}</div>
+          <pre>${escapeHtml(listCommand)}</pre>
+          <pre>${escapeHtml(codeCommand)}</pre>
+          <div class="muted">${t("apiErrorCodes")}</div>
+          <div class="muted">401 unauthorized / 403 forbidden / 404 not_found / 500 server_error</div>
         </div>
       </div>
     `;
@@ -2696,6 +2712,21 @@
     render();
   }
 
+  async function disablePat(id) {
+    if (!confirm(t("disablePatConfirm"))) return;
+    await api(`/api/pats/${id}/disable`, { method: "POST" });
+    await loadUserData();
+    render();
+  }
+
+  async function rotatePat(id) {
+    if (!confirm(t("rotatePatConfirm"))) return;
+    const payload = await api(`/api/pats/${id}/rotate`, { method: "POST" });
+    state.patToken = payload.token;
+    await loadUserData();
+    render();
+  }
+
   async function logout() {
     let logoutFailed = false;
     if (state.userToken) {
@@ -2879,6 +2910,8 @@
     if (action === "admin-view-secret") await revealAdminEntry(target.dataset.user, target.dataset.entry, "secret");
     if (action === "admin-view-otp") await revealAdminEntry(target.dataset.user, target.dataset.entry, "otp");
     if (action === "rename-pat") await renamePat(id);
+    if (action === "rotate-pat") await rotatePat(id);
+    if (action === "disable-pat") await disablePat(id);
     if (action === "delete-pat") await deletePat(id);
   });
 

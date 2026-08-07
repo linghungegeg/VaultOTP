@@ -794,6 +794,33 @@ textarea {
   padding: 8px;
 }
 
+.pat-row {
+  grid-template-columns: minmax(120px, 1fr) auto minmax(160px, 1fr) minmax(140px, 1fr);
+}
+
+.pat-row button {
+  width: 100%;
+}
+
+.api-help {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.api-help pre {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 8px;
+}
+
 .site-settings-form {
   display: grid;
   gap: 8px;
@@ -1173,6 +1200,10 @@ textarea {
   }
 
   .batch-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .pat-row {
     grid-template-columns: 1fr;
   }
 
