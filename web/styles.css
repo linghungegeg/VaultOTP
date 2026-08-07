@@ -325,6 +325,36 @@ textarea {
   margin-top: 12px;
 }
 
+.pwa-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.status-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.status-dot {
+  border-radius: 999px;
+  display: inline-block;
+  height: 10px;
+  width: 10px;
+}
+
+.status-dot.online {
+  background: #1a8f4b;
+}
+
+.status-dot.offline {
+  background: var(--danger);
+}
+
+.full-width {
+  width: 100%;
+}
+
 .admin-layout {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
@@ -692,6 +722,13 @@ textarea {
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;
+  }
+
+  .entry-actions {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    width: 100%;
   }
 
   .otp {

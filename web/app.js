@@ -39,6 +39,11 @@
     importText: "",
     importItems: [],
     importMessage: "",
+    online: navigator.onLine,
+    serviceWorkerReady: false,
+    offlineSecrets: new Map(),
+    offlineSecretIds: new Set(),
+    pwaMessage: "",
   };
   i18n.setLocale(currentLocale);
 
@@ -119,6 +124,151 @@
     return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
   }
 
+  function idbRequest(request) {
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function openOfflineDb() {
+    if (!window.indexedDB) throw new Error("indexeddb_unavailable");
+    const request = indexedDB.open("vaultotp-pwa-offline", 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("secrets")) db.createObjectStore("secrets");
+      if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta");
+    };
+    return idbRequest(request);
+  }
+
+  async function offlineStore(storeName, mode, callback) {
+    const db = await openOfflineDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, mode);
+      const store = tx.objectStore(storeName);
+      const result = callback(store);
+      tx.oncomplete = () => {
+        db.close();
+        resolve(result);
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  }
+
+  async function offlineKey() {
+    const existing = await offlineStore("meta", "readonly", (store) => idbRequest(store.get("offlineKey")));
+    if (existing) return existing;
+    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    await offlineStore("meta", "readwrite", (store) => store.put(key, "offlineKey"));
+    return key;
+  }
+
+  async function offlineMeta(key, value) {
+    if (arguments.length === 1) {
+      return offlineStore("meta", "readonly", (store) => idbRequest(store.get(key)));
+    }
+    return offlineStore("meta", "readwrite", (store) => store.put(value, key));
+  }
+
+  async function deleteOfflineMeta(key) {
+    return offlineStore("meta", "readwrite", (store) => store.delete(key));
+  }
+
+  function offlineEntrySnapshot(entry) {
+    return {
+      id: entry.id,
+      userId: entry.userId,
+      issuer: entry.issuer,
+      account: entry.account,
+      type: entry.type,
+      algorithm: entry.algorithm,
+      digits: entry.digits,
+      period: entry.period,
+      counter: entry.counter,
+      groupId: entry.groupId,
+      note: entry.note || "",
+      icon: entry.icon || "",
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+    };
+  }
+
+  async function cacheOfflineSnapshot() {
+    if (!state.user?.id) return;
+    const snapshot = {
+      user: state.user,
+      groups: state.groups,
+      entries: state.entries.map(offlineEntrySnapshot),
+      updatedAt: new Date().toISOString(),
+    };
+    await offlineMeta(`snapshot:${state.user.id}`, snapshot);
+    await offlineMeta("activeUserId", state.user.id);
+  }
+
+  async function loadActiveOfflineSnapshot() {
+    const userId = await offlineMeta("activeUserId");
+    if (!userId) return null;
+    return offlineMeta(`snapshot:${userId}`);
+  }
+
+  async function clearOfflineSession(deleteSnapshot = false) {
+    const userId = await offlineMeta("activeUserId");
+    await deleteOfflineMeta("activeUserId");
+    if (deleteSnapshot && userId) {
+      await deleteOfflineMeta(`snapshot:${userId}`);
+    }
+  }
+
+  async function cacheOfflineSecret(entry, secret) {
+    if (!entry?.id || !state.user?.id || !secret || entry.type === "HOTP") return;
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await offlineKey(), textEncoder.encode(normalizeSecret(secret)));
+    const payload = {
+      userId: state.user.id,
+      entryId: entry.id,
+      cipher: toBase64(cipher),
+      iv: toBase64(iv),
+      updatedAt: new Date().toISOString(),
+    };
+    await offlineStore("secrets", "readwrite", (store) => store.put(payload, entry.id));
+    state.offlineSecrets.set(entry.id, normalizeSecret(secret));
+    state.offlineSecretIds.add(entry.id);
+  }
+
+  async function deleteOfflineSecret(id) {
+    await offlineStore("secrets", "readwrite", (store) => store.delete(id));
+    state.offlineSecrets.delete(id);
+    state.offlineSecretIds.delete(id);
+  }
+
+  async function loadOfflineSecrets() {
+    state.offlineSecrets = new Map();
+    state.offlineSecretIds = new Set();
+    if (!state.user?.id || !state.entries.length) return;
+    const key = await offlineKey();
+    for (const entry of state.entries) {
+      const record = await offlineStore("secrets", "readonly", (store) => idbRequest(store.get(entry.id)));
+      if (!record || record.userId !== state.user.id) continue;
+      state.offlineSecretIds.add(entry.id);
+      try {
+        const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(record.iv) }, key, fromBase64(record.cipher));
+        state.offlineSecrets.set(entry.id, normalizeSecret(textDecoder.decode(plain)));
+      } catch {
+        state.offlineSecrets.delete(entry.id);
+      }
+    }
+  }
+
+  async function clearCurrentOfflineSecrets() {
+    for (const id of state.entries.map((entry) => entry.id)) {
+      await deleteOfflineSecret(id);
+    }
+  }
+
   function syncRouteFromLocation() {
     const hashRoute = window.location.hash.replace(/^#\/?/, "");
     state.route = window.location.pathname.startsWith("/admin") || hashRoute === "admin" ? "admin" : "app";
@@ -153,6 +303,9 @@
     state.editingId = null;
     state.message = "";
     state.otpCodes = new Map();
+    state.offlineSecrets = new Map();
+    state.offlineSecretIds = new Set();
+    state.pwaMessage = "";
   }
 
   function clearAdminSession() {
@@ -222,6 +375,37 @@
 
   function normalizeOtpType(value) {
     return String(value || "TOTP").toUpperCase().includes("HOTP") ? "HOTP" : "TOTP";
+  }
+
+  async function hotp(secret, counter, digits, algorithm) {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      base32ToBytes(secret),
+      { name: "HMAC", hash: normalizeAlgorithm(algorithm) },
+      false,
+      ["sign"],
+    );
+    const counterBytes = new ArrayBuffer(8);
+    const view = new DataView(counterBytes);
+    view.setUint32(0, Math.floor(counter / 0x100000000));
+    view.setUint32(4, counter >>> 0);
+    const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, counterBytes));
+    const offset = digest[digest.length - 1] & 0x0f;
+    const binary =
+      ((digest[offset] & 0x7f) << 24) |
+      ((digest[offset + 1] & 0xff) << 16) |
+      ((digest[offset + 2] & 0xff) << 8) |
+      (digest[offset + 3] & 0xff);
+    return String(binary % 10 ** Number(digits || 6)).padStart(Number(digits || 6), "0");
+  }
+
+  async function offlineCode(entry) {
+    if (entry.type === "HOTP") return "";
+    const secret = state.offlineSecrets.get(entry.id);
+    if (!secret) return "";
+    const period = Number(entry.period || 30);
+    const counter = Math.floor(Date.now() / 1000 / period);
+    return hotp(secret, counter, entry.digits, entry.algorithm);
   }
 
   function normalizeImportedEntry(raw, source) {
@@ -456,14 +640,19 @@
   }
 
   async function loadUserData() {
-    const [groups, entries, pats] = await Promise.all([
-      api("/api/groups"),
-      api("/api/entries"),
-      api("/api/pats"),
-    ]);
+    const groups = await api("/api/groups");
+    const entries = await api("/api/entries");
+    const pats = await api("/api/pats");
     state.groups = groups.items;
     state.entries = entries.items;
     state.pats = pats.items;
+    try {
+      await cacheOfflineSnapshot();
+      await loadOfflineSecrets();
+    } catch {
+      state.offlineSecrets = new Map();
+      state.offlineSecretIds = new Set();
+    }
     await refreshOtpCodes();
   }
 
@@ -493,7 +682,7 @@
   }
 
   async function refreshOtpCodes() {
-    if (!state.userToken || !state.entries.length) {
+    if (!state.entries.length) {
       state.otpCodes = new Map();
       renderOtpCodes();
       return;
@@ -501,10 +690,14 @@
     const codes = new Map();
     for (const entry of state.entries) {
       try {
-        const payload = await api(`/api/entries/${entry.id}/code`);
-        codes.set(entry.id, payload.code);
+        if (state.userToken) {
+          const payload = await api(`/api/entries/${entry.id}/code`);
+          codes.set(entry.id, payload.code);
+        } else {
+          codes.set(entry.id, (await offlineCode(entry)) || "------");
+        }
       } catch {
-        codes.set(entry.id, "------");
+        codes.set(entry.id, (await offlineCode(entry)) || "------");
       }
     }
     state.otpCodes = codes;
@@ -562,7 +755,7 @@
       return;
     }
     if (state.adminToken) clearAdminSession();
-    if (!state.userToken) {
+    if (!state.userToken && !state.user) {
       renderAuth();
       return;
     }
@@ -678,6 +871,7 @@
             ${groupButton("all", t("allGroups"), state.entries.length)}
             ${state.groups.map((group) => groupButton(group.id, group.name, countGroup(group.id))).join("")}
           </div>
+          ${pwaPanel()}
           ${patPanel()}
         </aside>
         <main class="content">
@@ -688,7 +882,7 @@
             </div>
             <div class="inline-actions">
               <button class="ghost" data-action="logout">${t("logout")}</button>
-              <button class="danger" data-action="delete-account">${t("deleteAccount")}</button>
+              <button class="danger" data-action="delete-account" ${state.userToken ? "" : "disabled"}>${t("deleteAccount")}</button>
             </div>
           </header>
           <section class="entry-list">
@@ -730,6 +924,23 @@
               : `<div class="empty">${t("pats")}</div>`
           }
         </div>
+      </div>
+    `;
+  }
+
+  function pwaPanel() {
+    const cached = state.entries.filter((entry) => state.offlineSecretIds.has(entry.id)).length;
+    return `
+      <div class="sidebar-section pwa-panel">
+        <div class="section-title">${t("pwaTitle")}</div>
+        <div class="status-row">
+          <span class="status-dot ${state.online ? "online" : "offline"}"></span>
+          <span>${state.online ? t("online") : t("offline")}</span>
+        </div>
+        <div class="muted">${t(state.serviceWorkerReady ? "offlineReady" : "offlineInstalling")}</div>
+        <div class="muted">${t("offlineCachedCount", { count: cached })}</div>
+        ${state.pwaMessage ? `<div class="error">${escapeHtml(state.pwaMessage)}</div>` : ""}
+        <button class="ghost full-width" data-action="sync-now" ${state.online && state.userToken ? "" : "disabled"}>${t("syncNow")}</button>
       </div>
     `;
   }
@@ -1222,7 +1433,14 @@
         body.secretVersion = 1;
       }
       const path = id ? `/api/entries/${id}` : "/api/entries";
-      await api(path, { method: id ? "PATCH" : "POST", body: JSON.stringify(body) });
+      const saved = await api(path, { method: id ? "PATCH" : "POST", body: JSON.stringify(body) });
+      if (secret && saved.entry) {
+        try {
+          await cacheOfflineSecret(saved.entry, secret);
+        } catch {
+          state.pwaMessage = t("offlineCacheUnavailable");
+        }
+      }
       state.editingId = "";
       state.message = "";
       await loadUserData();
@@ -1261,7 +1479,15 @@
       for (const item of items) {
         entries.push({ ...item.entry, encryptedSecret: await encryptSecret(item.entry.secret), secret: undefined });
       }
-      await api("/api/import", { method: "POST", body: JSON.stringify({ entries }) });
+      const imported = await api("/api/import", { method: "POST", body: JSON.stringify({ entries }) });
+      const inserted = Array.isArray(imported.entries) ? imported.entries : [];
+      for (const [index, entry] of inserted.entries()) {
+        try {
+          await cacheOfflineSecret(entry, items[index]?.entry.secret);
+        } catch {
+          state.pwaMessage = t("offlineCacheUnavailable");
+        }
+      }
       state.importOpen = false;
       state.importText = "";
       state.importItems = [];
@@ -1294,6 +1520,7 @@
   async function deleteEntry(id) {
     if (!confirm(t("deleteEntryConfirm"))) return;
     await api(`/api/entries/${id}`, { method: "DELETE" });
+    await deleteOfflineSecret(id);
     state.editingId = "";
     await loadUserData();
     render();
@@ -1309,7 +1536,7 @@
 
   async function copyCode(id) {
     const code = state.otpCodes.get(id);
-    if (!code) return;
+    if (!code || code === "------") return;
     await navigator.clipboard.writeText(code);
     state.copiedId = id;
     renderOtpCodes();
@@ -1322,7 +1549,20 @@
   async function deleteAccount() {
     if (!confirm(t("deleteAccountConfirm"))) return;
     await api("/api/me", { method: "DELETE" });
+    await clearCurrentOfflineSecrets();
+    await clearOfflineSession(true);
     clearUserSession();
+    render();
+  }
+
+  async function syncNow() {
+    if (!state.online) return;
+    try {
+      await loadUserData();
+      state.pwaMessage = t("syncDone");
+    } catch {
+      state.pwaMessage = t("serverError");
+    }
     render();
   }
 
@@ -1381,6 +1621,11 @@
         logoutFailed = true;
       }
     }
+    try {
+      await clearOfflineSession(false);
+    } catch {
+      // Offline cache cleanup is best-effort during sign out.
+    }
     clearUserSession();
     if (logoutFailed) {
       state.message = t("serverError");
@@ -1406,7 +1651,7 @@
 
   document.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const formId = event.target.id;
+    const formId = event.target.getAttribute("id");
     if (formId === "auth-form") await handleAuth(event.target);
     if (formId === "admin-auth-form") await handleAdminAuth(event.target);
     if (formId === "entry-form") await handleEntrySave(event.target);
@@ -1451,6 +1696,7 @@
       state.editingId = "";
       render();
     }
+    if (action === "sync-now") await syncNow();
     if (action === "clear-edit") {
       state.editingId = "";
       state.message = "";
@@ -1505,11 +1751,54 @@
 
   window.addEventListener("popstate", render);
   setInterval(() => {
-    if (state.userToken) refreshOtpCodes();
+    if (state.entries.length) refreshOtpCodes();
   }, 1000);
 
+  window.addEventListener("online", async () => {
+    state.online = true;
+    if (state.userToken) await syncNow();
+    render();
+  });
+
+  window.addEventListener("offline", () => {
+    state.online = false;
+    state.pwaMessage = t("offlineUsingCache");
+    render();
+  });
+
+  if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
+    navigator.serviceWorker
+      .register("/service-worker.js")
+      .then(() => navigator.serviceWorker.ready)
+      .then((registration) => {
+        state.serviceWorkerReady = true;
+        registration.active?.postMessage({ type: "refresh-shell" });
+        registration.update();
+        render();
+      })
+      .catch(() => {
+        state.serviceWorkerReady = false;
+      });
+  }
+
   bootstrap()
-    .catch(() => {
+    .catch(async () => {
+      try {
+        const snapshot = await loadActiveOfflineSnapshot();
+        if (snapshot?.user && Array.isArray(snapshot.entries)) {
+          state.user = snapshot.user;
+          state.groups = Array.isArray(snapshot.groups) ? snapshot.groups : [];
+          state.entries = snapshot.entries;
+          state.pats = [];
+          state.online = false;
+          state.pwaMessage = t("offlineUsingCache");
+          await loadOfflineSecrets();
+          await refreshOtpCodes();
+          return;
+        }
+      } catch {
+        // Fall through to the normal startup error.
+      }
       state.message = t("serverError");
       state.adminMessage = t("serverError");
     })

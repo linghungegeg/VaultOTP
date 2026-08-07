@@ -17,6 +17,8 @@ const contentTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".svg": "image/svg+xml; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
 };
 
 let storeCache = null;
@@ -1156,7 +1158,7 @@ async function handleStatic(request, response, pathname) {
   try {
     const data = await readFile(filePath);
     const headers = {
-      "Cache-Control": "no-store",
+      "Cache-Control": pathname === "/service-worker.js" ? "no-cache" : "no-store",
       "Content-Type": contentTypes[extname(filePath)] || "application/octet-stream",
     };
     if (isAppRoute && pathname === "/admin") {
