@@ -1,4 +1,4 @@
-const CACHE_NAME = "vaultotp-pwa-v1";
+const CACHE_NAME = "vaultotp-pwa-v2";
 const APP_SHELL = ["/app", "/styles.css", "/jsQR.js", "/app.js", "/extension/i18n.js", "/manifest.webmanifest", "/icon.svg"];
 
 async function refreshAppShell() {

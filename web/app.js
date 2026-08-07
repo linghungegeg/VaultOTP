@@ -1516,21 +1516,42 @@
   function renderUserApp() {
     app.className = `screen density-${state.displayDensity}`;
     const entries = filteredEntries();
+    const settingsItems = [
+      ["account", t("settingsAccount")],
+      ["display", t("settingsDisplay")],
+      ["language", t("settingsLanguage")],
+      ["transfer", t("settingsTransfer")],
+      ["organize", t("settingsOrganize")],
+      ["activity", t("settingsActivity")],
+      ["pat", t("settingsPat")],
+      ["pwa", t("settingsPwa")],
+    ];
     app.innerHTML = `
       <div class="layout user-layout">
         <aside class="sidebar user-sidebar">
           <div class="sidebar-heading">
-            <div class="section-title">${t("group")}</div>
-            <div class="muted">${t("serverBacked")}</div>
+            <div class="section-title">${t("authTitle")}</div>
+            <div class="muted">${escapeHtml(state.user?.email || "")}</div>
           </div>
-          <div class="group-list">
-            ${groupButton("all", t("allGroups"), activeEntries().length)}
-            ${state.groups.map((group) => groupButton(group.id, group.name, countGroup(group.id))).join("")}
-            <button class="group-item ${state.lifecycleView === "trash" ? "active" : ""}" data-action="show-trash">
-              <span>${t("trash")}</span>
-              <span>${trashedEntries().length}</span>
-            </button>
-          </div>
+          <nav class="user-nav">
+            <section class="nav-section">
+              <div class="nav-section-title">${t("serverBacked")}</div>
+              <div class="group-list">
+                ${groupButton("all", t("allGroups"), activeEntries().length)}
+                ${state.groups.map((group) => groupButton(group.id, group.name, countGroup(group.id))).join("")}
+                <button class="group-item ${!state.settingsOpen && state.lifecycleView === "trash" ? "active" : ""}" type="button" data-action="show-trash">
+                  <span>${t("trash")}</span>
+                  <span>${trashedEntries().length}</span>
+                </button>
+              </div>
+            </section>
+            <section class="nav-section">
+              <div class="nav-section-title">${t("settings")}</div>
+              <div class="group-list">
+                ${settingsItems.map(([id, label]) => settingsNavButton(id, label)).join("")}
+              </div>
+            </section>
+          </nav>
         </aside>
         <main class="content user-content">
           <header class="topbar user-topbar">
@@ -1542,12 +1563,11 @@
               <label for="search">${t("search")}</label>
               <input id="search" value="${escapeHtml(state.search)}" />
             </div>
-          <div class="inline-actions user-top-actions">
-            <button class="primary" data-action="open-import">${t("importEntries")}</button>
-            <button class="ghost" data-action="new-entry">${t("addEntry")}</button>
-            <button class="ghost" data-action="lock-now">${t("lockNow")}</button>
-            <button class="ghost" data-action="${state.settingsOpen ? "close-settings" : "open-settings"}" aria-expanded="${state.settingsOpen ? "true" : "false"}">${t("settings")}</button>
-          </div>
+            <div class="inline-actions user-top-actions">
+              <button class="primary" type="button" data-action="open-import">${t("importEntries")}</button>
+              <button class="ghost" type="button" data-action="new-entry">${t("addEntry")}</button>
+              <button class="ghost" type="button" data-action="lock-now">${t("lockNow")}</button>
+            </div>
           </header>
           <div class="user-main-stack">
             ${
@@ -1555,7 +1575,7 @@
                 ? settingsPanel()
                 : `
                   ${listToolbar(entries.length)}
-                  ${batchToolbar(entries)}
+                  ${entries.length || state.selectedEntryIds.size ? batchToolbar(entries) : ""}
                   <section class="entry-list">
                     ${entries.length ? entries.map(entryView).join("") : emptyEntryState()}
                   </section>
@@ -1571,13 +1591,15 @@
   }
 
   function listToolbar(count) {
+    const currentGroup = state.groups.find((group) => group.id === state.groupFilter);
+    const title = state.lifecycleView === "trash" ? t("trash") : state.groupFilter === "all" ? t("allGroups") : currentGroup?.name || t("allGroups");
     return `
       <section class="entry-toolbar">
-        <div class="entry-toolbar-left">
-          <div class="segmented">
-            <button class="${state.lifecycleView === "active" ? "active" : ""}" data-action="show-active">${t("activeEntries")}</button>
-            <button class="${state.lifecycleView === "trash" ? "active" : ""}" data-action="show-trash">${t("trash")}</button>
-          </div>
+        <div>
+          <h1>${escapeHtml(title)}</h1>
+          <div class="muted">${t("entriesCount", { count })}</div>
+        </div>
+        <div class="entry-toolbar-controls">
           <div class="field sort-field">
             <label for="sort-mode">${t("sortBy")}</label>
             <select id="sort-mode" data-action="sort-mode">
@@ -1587,11 +1609,10 @@
               <option value="created" ${state.sortMode === "created" ? "selected" : ""}>${t("sortCreated")}</option>
             </select>
           </div>
-        </div>
-        <div class="inline-actions entry-toolbar-actions">
-          <span class="muted">${t("entriesCount", { count })}</span>
-          ${state.copyMessage ? `<span class="copy-feedback">${escapeHtml(state.copyMessage)}</span>` : ""}
-          <button class="ghost" data-action="clear-filters">${t("clearFilters")}</button>
+          <div class="inline-actions entry-toolbar-actions">
+            ${state.copyMessage ? `<span class="copy-feedback">${escapeHtml(state.copyMessage)}</span>` : ""}
+            <button class="ghost" type="button" data-action="clear-filters">${t("clearFilters")}</button>
+          </div>
         </div>
       </section>
     `;
@@ -1641,7 +1662,7 @@
         <div class="empty-state">
           <div class="empty">${t("noMatchingEntries")}</div>
           <div class="inline-actions empty-actions">
-            <button class="ghost" data-action="clear-filters">${t("clearFilters")}</button>
+            <button class="ghost" type="button" data-action="clear-filters">${t("clearFilters")}</button>
           </div>
         </div>
       `;
@@ -1650,8 +1671,8 @@
       <div class="empty-state">
         <div class="empty">${t("emptyEntries")}</div>
         <div class="inline-actions empty-actions">
-          <button class="primary" data-action="open-import">${t("importEntries")}</button>
-          <button class="ghost" data-action="new-entry">${t("addEntry")}</button>
+          <button class="primary" type="button" data-action="open-import">${t("importEntries")}</button>
+          <button class="ghost" type="button" data-action="new-entry">${t("addEntry")}</button>
         </div>
       </div>
     `;
@@ -1665,10 +1686,6 @@
           <div>
             <h2>${sectionTitle}</h2>
             ${state.settingsMessage ? `<div class="muted">${escapeHtml(state.settingsMessage)}</div>` : ""}
-          </div>
-          <div class="inline-actions">
-            ${state.settingsSection === "overview" ? "" : `<button class="ghost" data-action="settings-overview">${t("back")}</button>`}
-            <button class="ghost" data-action="close-settings">${t("close")}</button>
           </div>
         </div>
         ${settingsContent()}
@@ -1745,7 +1762,7 @@
           <div class="section-title">${t("importEntries")}</div>
           <div class="muted">${t("settingsImportHint")}</div>
           <div class="inline-actions settings-actions">
-            <button class="primary" data-action="open-import">${t("importEntries")}</button>
+            <button class="primary" type="button" data-action="open-import">${t("importEntries")}</button>
           </div>
         </div>
         ${exportPanel()}
@@ -2049,9 +2066,17 @@
 
   function groupButton(id, name, count) {
     return `
-      <button class="group-item ${state.groupFilter === id ? "active" : ""}" data-group="${escapeHtml(id)}">
+      <button class="group-item ${!state.settingsOpen && state.lifecycleView === "active" && state.groupFilter === id ? "active" : ""}" type="button" data-group="${escapeHtml(id)}">
         <span>${escapeHtml(name)}</span>
         <span>${count}</span>
+      </button>
+    `;
+  }
+
+  function settingsNavButton(id, label) {
+    return `
+      <button class="group-item ${state.settingsOpen && state.settingsSection === id ? "active" : ""}" type="button" data-settings-section="${id}">
+        <span>${escapeHtml(label)}</span>
       </button>
     `;
   }
@@ -2236,7 +2261,7 @@
         <div class="modal">
           <div class="panel-title">
             <h2>${t("importTitle")}</h2>
-            <button class="ghost" data-action="close-import">${t("close")}</button>
+            <button class="ghost" type="button" data-action="close-import">${t("close")}</button>
           </div>
           <div class="field">
             <label>${t("chooseFile")}</label>
@@ -2248,8 +2273,8 @@
               <div class="muted">${t("scanQrHint")}</div>
             </div>
             <div class="inline-actions">
-              <button class="ghost" data-action="open-scanner" ${state.scannerOpen ? "disabled" : ""}>${t("startScan")}</button>
-              ${state.scannerOpen ? `<button class="ghost" data-action="close-scanner">${t("stopScan")}</button>` : ""}
+              <button class="ghost" type="button" data-action="open-scanner" ${state.scannerOpen ? "disabled" : ""}>${t("startScan")}</button>
+              ${state.scannerOpen ? `<button class="ghost" type="button" data-action="close-scanner">${t("stopScan")}</button>` : ""}
             </div>
             ${state.scannerOpen ? `<video id="qr-scan-video" class="qr-scan-video" autoplay muted playsinline></video>` : ""}
           </div>
@@ -2266,9 +2291,9 @@
             </select>
           </div>
           <div class="inline-actions">
-            <button class="primary" data-action="parse-import">${t("parseImport")}</button>
-            <button class="ghost" data-action="import-all">${t("importAll")}</button>
-            <button class="ghost" data-action="import-selected">${t("importSelected")}</button>
+            <button class="primary" type="button" data-action="parse-import">${t("parseImport")}</button>
+            <button class="ghost" type="button" data-action="import-all">${t("importAll")}</button>
+            <button class="ghost" type="button" data-action="import-selected">${t("importSelected")}</button>
           </div>
           <div class="error">${escapeHtml(state.importMessage)}</div>
           ${importPreview()}
@@ -3169,6 +3194,7 @@
       state.groupFilter = target.dataset.group;
       state.lifecycleView = "active";
       state.editingId = null;
+      state.settingsOpen = false;
       render();
       return;
     }
@@ -3183,8 +3209,10 @@
       return;
     }
     if (target.dataset.settingsSection) {
+      state.settingsOpen = true;
       state.settingsSection = target.dataset.settingsSection;
       state.settingsMessage = "";
+      state.editingId = null;
       render();
       return;
     }
@@ -3224,12 +3252,14 @@
       state.lifecycleView = "active";
       state.groupFilter = "all";
       state.selectedEntryIds = new Set();
+      state.settingsOpen = false;
       render();
     }
     if (action === "show-trash") {
       state.lifecycleView = "trash";
       state.groupFilter = "all";
       state.selectedEntryIds = new Set();
+      state.settingsOpen = false;
       render();
     }
     if (action === "delete-entry") await deleteEntry(id);
