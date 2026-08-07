@@ -1800,6 +1800,15 @@
     const baseUrl = window.location.origin && window.location.origin !== "null" ? window.location.origin : "https://vault.example.com";
     const listCommand = `curl -H "Authorization: Bearer ${t("patPlaceholder")}" ${baseUrl}/api/entries`;
     const codeCommand = `curl -H "Authorization: Bearer ${t("patPlaceholder")}" ${baseUrl}/api/entries/${sampleEntry?.id || "{entryId}"}/code`;
+    const endpoints = [
+      ["GET", "/api/me", t("apiMeDesc")],
+      ["GET", "/api/groups", t("apiGroupsDesc")],
+      ["GET", "/api/entries", t("apiListEntriesDesc")],
+      ["GET", "/api/entries/{entryId}/code", t("apiEntryCodeDesc")],
+      ["GET", "/api/export", t("apiExportEncryptedDesc")],
+      ["GET", "/api/export?format=otpauth", t("apiExportOtpAuthDesc")],
+      ["POST", "/api/import", t("apiImportDesc")],
+    ];
     return `
       <div class="sidebar-section">
         <div class="section-title">${t("pats")}</div>
@@ -1833,8 +1842,22 @@
         <div class="api-help">
           <div class="section-title">${t("apiUsage")}</div>
           <div class="muted">${t("apiUsageHint")}</div>
+          <div class="api-endpoint-list">
+            ${endpoints
+              .map(
+                ([method, path, description]) => `
+                  <div class="api-endpoint-row">
+                    <span class="badge">${escapeHtml(method)}</span>
+                    <code>${escapeHtml(path)}</code>
+                    <span>${escapeHtml(description)}</span>
+                  </div>
+                `,
+              )
+              .join("")}
+          </div>
           <pre>${escapeHtml(listCommand)}</pre>
           <pre>${escapeHtml(codeCommand)}</pre>
+          <div class="muted">${t("apiTokenManagementHint")}</div>
           <div class="muted">${t("apiErrorCodes")}</div>
           <div class="muted">401 unauthorized / 403 forbidden / 404 not_found / 500 server_error</div>
         </div>
