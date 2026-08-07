@@ -223,9 +223,43 @@ textarea {
   grid-auto-rows: max-content;
 }
 
+.sidebar-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.user-topbar {
+  align-items: end;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(180px, auto) minmax(240px, 1fr) auto;
+}
+
+.user-account {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.user-account strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-top-actions {
+  justify-content: flex-end;
+}
+
+.user-main-stack {
+  display: grid;
+  min-width: 0;
+}
+
 .user-toolbar,
 .user-form-section,
-.user-utility-grid {
+.user-utility-grid,
+.user-settings-panel {
   padding: 18px;
 }
 
@@ -367,12 +401,30 @@ textarea {
   grid-column: 1 / -1;
 }
 
-.user-utility-grid {
+.user-settings-panel {
   background: var(--panel-soft);
   border-top: 1px solid var(--line);
+}
+
+.user-settings-panel .panel-title h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.user-utility-grid {
   display: grid;
   gap: 18px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0;
+}
+
+.user-utility-grid .sidebar-section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-top: 0;
+  min-width: 0;
+  padding: 14px;
 }
 
 .form-row {
@@ -392,6 +444,10 @@ textarea {
   align-items: stretch;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  margin-top: 12px;
+}
+
+.settings-actions {
   margin-top: 12px;
 }
 
@@ -902,9 +958,22 @@ textarea {
   .advanced-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .user-topbar,
+  .user-utility-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .user-top-actions {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 760px) {
+  body {
+    overflow-x: hidden;
+  }
+
   .layout {
     display: block;
   }
@@ -962,10 +1031,17 @@ textarea {
   }
 
   .topbar {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
     padding: 14px 18px;
+  }
+
+  .user-topbar {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .user-top-actions button,
+  .settings-actions button {
+    flex: 1 1 120px;
   }
 
   .entry-main {

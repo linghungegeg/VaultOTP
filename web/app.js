@@ -37,6 +37,7 @@
     copiedId: "",
     renderScheduled: false,
     importOpen: false,
+    settingsOpen: false,
     importText: "",
     importItems: [],
     importMessage: "",
@@ -1087,12 +1088,9 @@
     app.innerHTML = `
       <div class="layout user-layout">
         <aside class="sidebar user-sidebar">
-          <div class="brand-row">
-            <div>
-              <div class="brand">${t("authTitle")}</div>
-              <div class="muted">${t("serverBacked")}</div>
-            </div>
-            ${languageSwitch()}
+          <div class="sidebar-heading">
+            <div class="section-title">${t("group")}</div>
+            <div class="muted">${t("serverBacked")}</div>
           </div>
           <div class="group-list">
             ${groupButton("all", t("allGroups"), state.entries.length)}
@@ -1100,39 +1098,61 @@
           </div>
         </aside>
         <main class="content user-content">
-          <header class="topbar">
-            <div>
-              <strong>${escapeHtml(state.user?.email || "")}</strong>
+          <header class="topbar user-topbar">
+            <div class="user-account">
               <span class="muted">${t("currentUser")}</span>
+              <strong>${escapeHtml(state.user?.email || "")}</strong>
             </div>
-            <div class="inline-actions">
-              <button class="ghost" data-action="logout">${t("logout")}</button>
-              <button class="danger" data-action="delete-account" ${state.userToken ? "" : "disabled"}>${t("deleteAccount")}</button>
-            </div>
-          </header>
-          <section class="user-toolbar">
             <div class="field user-search">
               <label for="search">${t("search")}</label>
               <input id="search" value="${escapeHtml(state.search)}" />
             </div>
-            <div class="inline-actions">
+            <div class="inline-actions user-top-actions">
               <button class="primary" data-action="open-import">${t("importEntries")}</button>
               <button class="ghost" data-action="new-entry">${t("addEntry")}</button>
+              <button class="ghost" data-action="toggle-settings" aria-expanded="${state.settingsOpen ? "true" : "false"}">${t("settings")}</button>
             </div>
-          </section>
-          <section class="entry-list">
-            ${entries.length ? entries.map(entryView).join("") : `<div class="empty">${t("noEntries")}</div>`}
-          </section>
-          <section class="user-form-section">
-            ${entryForm()}
-          </section>
-          <section class="user-utility-grid">
-            ${pwaPanel()}
-            ${patPanel()}
-          </section>
+          </header>
+          <div class="user-main-stack">
+            <section class="entry-list">
+              ${entries.length ? entries.map(entryView).join("") : `<div class="empty">${t("noEntries")}</div>`}
+            </section>
+            ${state.editingId !== null ? `<section class="user-form-section">${entryForm()}</section>` : ""}
+            ${state.settingsOpen ? settingsPanel() : ""}
+          </div>
         </main>
       </div>
       ${state.importOpen ? importPanel() : ""}
+    `;
+  }
+
+  function settingsPanel() {
+    return `
+      <section class="user-settings-panel">
+        <div class="panel-title">
+          <h2>${t("settings")}</h2>
+          <button class="ghost" data-action="toggle-settings">${t("close")}</button>
+        </div>
+        <div class="user-utility-grid">
+          ${accountSecurityPanel()}
+          ${pwaPanel()}
+          ${patPanel()}
+        </div>
+      </section>
+    `;
+  }
+
+  function accountSecurityPanel() {
+    return `
+      <div class="sidebar-section">
+        <div class="section-title">${t("accountSecurity")}</div>
+        <div class="muted">${escapeHtml(state.user?.email || "")}</div>
+        ${languageSwitch()}
+        <div class="inline-actions settings-actions">
+          <button class="ghost" data-action="logout">${t("logout")}</button>
+          <button class="danger" data-action="delete-account" ${state.userToken ? "" : "disabled"}>${t("deleteAccount")}</button>
+        </div>
+      </div>
     `;
   }
 
@@ -1674,7 +1694,7 @@
           state.pwaMessage = t("offlineCacheUnavailable");
         }
       }
-      state.editingId = "";
+      state.editingId = null;
       state.message = "";
       await loadUserData();
       render();
@@ -1768,7 +1788,7 @@
     if (!confirm(t("deleteEntryConfirm"))) return;
     await api(`/api/entries/${id}`, { method: "DELETE" });
     await deleteOfflineSecret(id);
-    state.editingId = "";
+    state.editingId = null;
     await loadUserData();
     render();
   }
@@ -1925,11 +1945,13 @@
     }
     if (target.dataset.group) {
       state.groupFilter = target.dataset.group;
+      state.editingId = null;
       render();
       return;
     }
     if (target.dataset.entryId) {
       state.editingId = target.dataset.entryId;
+      state.settingsOpen = false;
       render();
       return;
     }
@@ -1941,11 +1963,17 @@
     const id = target.dataset.id;
     if (action === "new-entry") {
       state.editingId = "";
+      state.settingsOpen = false;
+      render();
+    }
+    if (action === "toggle-settings") {
+      state.settingsOpen = !state.settingsOpen;
+      state.editingId = null;
       render();
     }
     if (action === "sync-now") await syncNow();
     if (action === "clear-edit") {
-      state.editingId = "";
+      state.editingId = null;
       state.message = "";
       render();
     }
