@@ -8,6 +8,10 @@
   const uid = () => `${Date.now().toString(36)}${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
   const idleLockMs = 5 * 60 * 1000;
   const hideCodesStorageKey = "vaultotp.hideCodesByDefault";
+  const sortModeStorageKey = "vaultotp.sortMode";
+  const densityStorageKey = "vaultotp.displayDensity";
+  const sortModes = new Set(["recent", "name", "group", "created"]);
+  const densityModes = new Set(["comfortable", "compact"]);
 
   const state = {
     route: "app",
@@ -33,7 +37,8 @@
     editingId: null,
     groupFilter: "all",
     lifecycleView: "active",
-    sortMode: "recent",
+    sortMode: sortModes.has(localStorage.getItem(sortModeStorageKey)) ? localStorage.getItem(sortModeStorageKey) : "recent",
+    displayDensity: densityModes.has(localStorage.getItem(densityStorageKey)) ? localStorage.getItem(densityStorageKey) : "comfortable",
     batchGroupId: "default",
     search: "",
     message: "",
@@ -50,6 +55,8 @@
     renderScheduled: false,
     importOpen: false,
     settingsOpen: false,
+    settingsSection: "overview",
+    settingsMessage: "",
     scannerOpen: false,
     importText: "",
     importItems: [],
@@ -92,6 +99,7 @@
   function changeLocale(locale) {
     currentLocale = i18n.setLocale(locale);
     state.locale = currentLocale;
+    if (state.settingsOpen) state.settingsMessage = t("settingsSaved");
     render();
   }
 
@@ -353,7 +361,7 @@
     state.editingId = null;
     state.groupFilter = "all";
     state.lifecycleView = "active";
-    state.sortMode = "recent";
+    state.sortMode = sortModes.has(localStorage.getItem(sortModeStorageKey)) ? localStorage.getItem(sortModeStorageKey) : "recent";
     state.batchGroupId = "default";
     state.search = "";
     state.message = "";
@@ -366,6 +374,8 @@
     state.selectedEntryIds = new Set();
     state.importOpen = false;
     state.settingsOpen = false;
+    state.settingsSection = "overview";
+    state.settingsMessage = "";
     state.scannerOpen = false;
     state.importText = "";
     state.importItems = [];
@@ -1404,7 +1414,7 @@
   }
 
   function renderUserApp() {
-    app.className = "screen";
+    app.className = `screen density-${state.displayDensity}`;
     const entries = filteredEntries();
     app.innerHTML = `
       <div class="layout user-layout">
@@ -1436,17 +1446,22 @@
             <button class="primary" data-action="open-import">${t("importEntries")}</button>
             <button class="ghost" data-action="new-entry">${t("addEntry")}</button>
             <button class="ghost" data-action="lock-now">${t("lockNow")}</button>
-            <button class="ghost" data-action="toggle-settings" aria-expanded="${state.settingsOpen ? "true" : "false"}">${t("settings")}</button>
+            <button class="ghost" data-action="${state.settingsOpen ? "close-settings" : "open-settings"}" aria-expanded="${state.settingsOpen ? "true" : "false"}">${t("settings")}</button>
           </div>
           </header>
           <div class="user-main-stack">
-            ${listToolbar(entries.length)}
-            ${batchToolbar(entries)}
-            <section class="entry-list">
-              ${entries.length ? entries.map(entryView).join("") : emptyEntryState()}
-            </section>
-            ${state.editingId !== null ? `<section class="user-form-section">${entryForm()}</section>` : ""}
-            ${state.settingsOpen ? settingsPanel() : ""}
+            ${
+              state.settingsOpen
+                ? settingsPanel()
+                : `
+                  ${listToolbar(entries.length)}
+                  ${batchToolbar(entries)}
+                  <section class="entry-list">
+                    ${entries.length ? entries.map(entryView).join("") : emptyEntryState()}
+                  </section>
+                  ${state.editingId !== null ? `<section class="user-form-section">${entryForm()}</section>` : ""}
+                `
+            }
           </div>
         </main>
       </div>
@@ -1540,20 +1555,71 @@
   }
 
   function settingsPanel() {
+    const sectionTitle = state.settingsSection === "overview" ? t("settings") : t(`settings${state.settingsSection[0].toUpperCase()}${state.settingsSection.slice(1)}`);
     return `
       <section class="user-settings-panel">
         <div class="panel-title">
-          <h2>${t("settings")}</h2>
-          <button class="ghost" data-action="toggle-settings">${t("close")}</button>
+          <div>
+            <h2>${sectionTitle}</h2>
+            ${state.settingsMessage ? `<div class="muted">${escapeHtml(state.settingsMessage)}</div>` : ""}
+          </div>
+          <div class="inline-actions">
+            ${state.settingsSection === "overview" ? "" : `<button class="ghost" data-action="settings-overview">${t("back")}</button>`}
+            <button class="ghost" data-action="close-settings">${t("close")}</button>
+          </div>
         </div>
-        <div class="user-utility-grid">
-          ${privacyPanel()}
-          ${accountSecurityPanel()}
-          ${pwaPanel()}
-          ${patPanel()}
-          ${exportPanel()}
-        </div>
+        ${settingsContent()}
       </section>
+    `;
+  }
+
+  function settingsContent() {
+    if (state.settingsSection === "account") return accountSecurityPanel();
+    if (state.settingsSection === "display") return displaySettingsPanel();
+    if (state.settingsSection === "language") return languageSettingsPanel();
+    if (state.settingsSection === "pwa") return pwaPanel();
+    if (state.settingsSection === "pat") return patPanel();
+    if (state.settingsSection === "transfer") return transferSettingsPanel();
+    return settingsOverview();
+  }
+
+  function settingsOverview() {
+    const items = [
+      ["account", t("settingsAccount"), t("settingsAccountHint")],
+      ["display", t("settingsDisplay"), t("settingsDisplayHint")],
+      ["language", t("settingsLanguage"), t("settingsLanguageHint")],
+      ["pwa", t("settingsPwa"), t("settingsPwaHint")],
+      ["pat", t("settingsPat"), t("settingsPatHint")],
+      ["transfer", t("settingsTransfer"), t("settingsTransferHint")],
+    ];
+    return `
+      <div class="settings-overview">
+        ${items
+          .map(
+            ([id, title, hint]) => `
+              <button class="settings-card" type="button" data-settings-section="${id}">
+                <span>${title}</span>
+                <small>${hint}</small>
+              </button>
+            `,
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
+  function transferSettingsPanel() {
+    return `
+      <div class="settings-section-stack">
+        <div class="sidebar-section">
+          <div class="section-title">${t("importEntries")}</div>
+          <div class="muted">${t("settingsImportHint")}</div>
+          <div class="inline-actions settings-actions">
+            <button class="primary" data-action="open-import">${t("importEntries")}</button>
+          </div>
+        </div>
+        ${exportPanel()}
+      </div>
     `;
   }
 
@@ -1587,7 +1653,6 @@
           <div><span class="muted">${t("lastLogin")}</span><strong>${escapeHtml(user.lastLoginAt || "-")}</strong></div>
           <div><span class="muted">${t("patCount")}</span><strong>${escapeHtml(session.patCount ?? state.pats.length)}</strong></div>
         </div>
-        ${languageSwitch()}
         <div class="inline-actions settings-actions">
           <button class="ghost" data-action="lock-now">${t("lockNow")}</button>
           <button class="ghost" data-action="logout">${t("logout")}</button>
@@ -1597,15 +1662,40 @@
     `;
   }
 
-  function privacyPanel() {
+  function displaySettingsPanel() {
     return `
       <div class="sidebar-section">
-        <div class="section-title">${t("privacySettings")}</div>
+        <div class="section-title">${t("settingsDisplay")}</div>
         <label class="checkbox-field">
           <input type="checkbox" data-action="hide-codes-default" ${state.hideCodesByDefault ? "checked" : ""} />
           <span>${t("hideCodesByDefault")}</span>
         </label>
+        <div class="field">
+          <label for="settings-sort-mode">${t("sortBy")}</label>
+          <select id="settings-sort-mode" data-action="settings-sort-mode">
+            <option value="recent" ${state.sortMode === "recent" ? "selected" : ""}>${t("sortRecent")}</option>
+            <option value="name" ${state.sortMode === "name" ? "selected" : ""}>${t("sortName")}</option>
+            <option value="group" ${state.sortMode === "group" ? "selected" : ""}>${t("sortGroup")}</option>
+            <option value="created" ${state.sortMode === "created" ? "selected" : ""}>${t("sortCreated")}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="display-density">${t("displayDensity")}</label>
+          <select id="display-density" data-action="display-density">
+            <option value="comfortable" ${state.displayDensity === "comfortable" ? "selected" : ""}>${t("densityComfortable")}</option>
+            <option value="compact" ${state.displayDensity === "compact" ? "selected" : ""}>${t("densityCompact")}</option>
+          </select>
+        </div>
         <div class="muted">${t("idleLockInfo")}</div>
+      </div>
+    `;
+  }
+
+  function languageSettingsPanel() {
+    return `
+      <div class="sidebar-section">
+        <div class="section-title">${t("language")}</div>
+        ${languageSwitch()}
       </div>
     `;
   }
@@ -2226,10 +2316,12 @@
     try {
       const payload = await api("/api/pats", { method: "POST", body: JSON.stringify({ name }) });
       state.patToken = payload.token;
+      state.settingsMessage = t("settingsSaved");
       await loadUserData();
       render();
     } catch {
-      setMessage(t("serverError"));
+      state.settingsMessage = t("serverError");
+      render();
     }
   }
 
@@ -2700,30 +2792,50 @@
     const pat = state.pats.find((item) => item.id === id);
     const name = prompt(t("patName"), pat?.name || "");
     if (!name) return;
-    await api(`/api/pats/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
-    await loadUserData();
+    try {
+      await api(`/api/pats/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+      state.settingsMessage = t("settingsSaved");
+      await loadUserData();
+    } catch {
+      state.settingsMessage = t("serverError");
+    }
     render();
   }
 
   async function deletePat(id) {
     if (!confirm(t("deletePatConfirm"))) return;
-    await api(`/api/pats/${id}`, { method: "DELETE" });
-    await loadUserData();
+    try {
+      await api(`/api/pats/${id}`, { method: "DELETE" });
+      state.settingsMessage = t("settingsSaved");
+      await loadUserData();
+    } catch {
+      state.settingsMessage = t("serverError");
+    }
     render();
   }
 
   async function disablePat(id) {
     if (!confirm(t("disablePatConfirm"))) return;
-    await api(`/api/pats/${id}/disable`, { method: "POST" });
-    await loadUserData();
+    try {
+      await api(`/api/pats/${id}/disable`, { method: "POST" });
+      state.settingsMessage = t("settingsSaved");
+      await loadUserData();
+    } catch {
+      state.settingsMessage = t("serverError");
+    }
     render();
   }
 
   async function rotatePat(id) {
     if (!confirm(t("rotatePatConfirm"))) return;
-    const payload = await api(`/api/pats/${id}/rotate`, { method: "POST" });
-    state.patToken = payload.token;
-    await loadUserData();
+    try {
+      const payload = await api(`/api/pats/${id}/rotate`, { method: "POST" });
+      state.patToken = payload.token;
+      state.settingsMessage = t("settingsSaved");
+      await loadUserData();
+    } catch {
+      state.settingsMessage = t("serverError");
+    }
     render();
   }
 
@@ -2809,6 +2921,12 @@
       await loadAdminUser(target.dataset.adminUser);
       return;
     }
+    if (target.dataset.settingsSection) {
+      state.settingsSection = target.dataset.settingsSection;
+      state.settingsMessage = "";
+      render();
+      return;
+    }
     const action = target.dataset.action;
     const id = target.dataset.id;
     if (action === "new-entry") {
@@ -2816,9 +2934,22 @@
       state.settingsOpen = false;
       render();
     }
-    if (action === "toggle-settings") {
-      state.settingsOpen = !state.settingsOpen;
+    if (action === "open-settings") {
+      state.settingsOpen = true;
+      state.settingsSection = "overview";
+      state.settingsMessage = "";
       state.editingId = null;
+      render();
+    }
+    if (action === "close-settings") {
+      state.settingsOpen = false;
+      state.settingsSection = "overview";
+      state.settingsMessage = "";
+      render();
+    }
+    if (action === "settings-overview") {
+      state.settingsSection = "overview";
+      state.settingsMessage = "";
       render();
     }
     if (action === "lock-now") lockUserApp("lockedHint");
@@ -2931,6 +3062,33 @@
   document.addEventListener("change", async (event) => {
     if (event.target.dataset.action === "sort-mode") {
       state.sortMode = event.target.value;
+      try {
+        localStorage.setItem(sortModeStorageKey, state.sortMode);
+      } catch {
+        // List sorting still works for the current session if local storage is unavailable.
+      }
+      render();
+      return;
+    }
+    if (event.target.dataset.action === "settings-sort-mode") {
+      state.sortMode = sortModes.has(event.target.value) ? event.target.value : "recent";
+      try {
+        localStorage.setItem(sortModeStorageKey, state.sortMode);
+        state.settingsMessage = t("settingsSaved");
+      } catch {
+        state.settingsMessage = t("serverError");
+      }
+      render();
+      return;
+    }
+    if (event.target.dataset.action === "display-density") {
+      state.displayDensity = densityModes.has(event.target.value) ? event.target.value : "comfortable";
+      try {
+        localStorage.setItem(densityStorageKey, state.displayDensity);
+        state.settingsMessage = t("settingsSaved");
+      } catch {
+        state.settingsMessage = t("serverError");
+      }
       render();
       return;
     }
@@ -2965,7 +3123,12 @@
     }
     if (event.target.dataset.action === "hide-codes-default") {
       state.hideCodesByDefault = event.target.checked;
-      localStorage.setItem(hideCodesStorageKey, state.hideCodesByDefault ? "true" : "false");
+      try {
+        localStorage.setItem(hideCodesStorageKey, state.hideCodesByDefault ? "true" : "false");
+        if (state.settingsOpen) state.settingsMessage = t("settingsSaved");
+      } catch {
+        if (state.settingsOpen) state.settingsMessage = t("serverError");
+      }
       state.revealedEntryIds = new Set();
       render();
       return;

@@ -383,6 +383,14 @@ textarea {
   padding: 14px;
 }
 
+.density-compact .entry {
+  padding: 10px;
+}
+
+.density-compact .entry-meta {
+  margin-top: 4px;
+}
+
 .entry.selected {
   border-color: var(--accent);
 }
@@ -512,12 +520,61 @@ textarea {
 
 .user-settings-panel {
   background: var(--panel-soft);
-  border-top: 1px solid var(--line);
+  min-height: calc(100vh - 64px);
 }
 
 .user-settings-panel .panel-title h2 {
   font-size: 18px;
   margin: 0;
+}
+
+.settings-overview {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 16px;
+}
+
+.settings-card {
+  align-items: flex-start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-height: 86px;
+  padding: 14px;
+  text-align: left;
+}
+
+.settings-card span {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.settings-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-section-stack {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.user-settings-panel > .sidebar-section,
+.settings-section-stack .sidebar-section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-top: 16px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.settings-section-stack .sidebar-section {
+  margin-top: 0;
 }
 
 .user-utility-grid {
