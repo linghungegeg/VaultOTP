@@ -925,9 +925,19 @@
       ...(Array.isArray(json) ? json : []),
       ...(Array.isArray(json?.items) ? json.items : []),
       ...(Array.isArray(json?.vaults) ? json.vaults.flatMap((vault) => (Array.isArray(vault?.items) ? vault.items : [])) : []),
+      ...(Array.isArray(json?.data?.items) ? json.data.items : []),
+      ...(Array.isArray(json?.data?.vaults) ? json.data.vaults.flatMap((vault) => (Array.isArray(vault?.items) ? vault.items : [])) : []),
     ];
     return values.flatMap((item) => {
-      const value = item?.totp || item?.otp || item?.login?.totp || item?.content?.totp || item?.data?.totp;
+      const value =
+        item?.totp ||
+        item?.otp ||
+        item?.login?.totp ||
+        item?.content?.totp ||
+        item?.content?.item?.totp ||
+        item?.data?.totp ||
+        item?.fields?.totp ||
+        item?.extraFields?.find?.((field) => /totp|otp/i.test(field?.type || field?.name || ""))?.value;
       if (!value) return [];
       return [
         parseImportedOtpValue(
@@ -946,6 +956,88 @@
         ),
       ];
     });
+  }
+
+  function parseFreeOtpJsonValue(value) {
+    try {
+      const raw = JSON.parse(String(value || "").trim());
+      const secret =
+        raw.secret ||
+        raw.secretKey ||
+        raw.otp_secret ||
+        raw.tokenSecret ||
+        raw.token?.secret ||
+        raw.token?.secretKey ||
+        raw.secretBase32;
+      if (!secret && !(raw.url || raw.uri || raw.otpauth)) return [];
+      if (raw.url || raw.uri || raw.otpauth) return [parseOtpAuthUri(raw.url || raw.uri || raw.otpauth, "FreeOTP")];
+      return [
+        normalizeImportedEntry(
+          {
+            issuer: raw.issuer || raw.issuerExt || raw.label || raw.name || raw.service,
+            account: raw.account || raw.accountName || raw.label || raw.name || raw.email,
+            secret,
+            type: raw.type || raw.kind || raw.otpType,
+            algorithm: raw.algorithm || raw.algo,
+            digits: raw.digits,
+            period: raw.period || raw.timer,
+            counter: raw.counter,
+          },
+          "FreeOTP",
+        ),
+      ];
+    } catch {
+      return [];
+    }
+  }
+
+  function parseXmlImport(text) {
+    if (typeof DOMParser === "undefined") return [];
+    const doc = new DOMParser().parseFromString(text, "application/xml");
+    if (doc.querySelector("parsererror")) throw new Error(t("reasonUnsupported"));
+    const entries = [];
+    const fullText = doc.documentElement.textContent || "";
+    for (const match of fullText.matchAll(/otpauth:\/\/[^\s<>"']+/gi)) {
+      try {
+        entries.push(parseOtpAuthUri(match[0], "XML"));
+      } catch {
+        // Ignore non-OTP URLs and keep parsing the rest of the file.
+      }
+    }
+    for (const node of doc.querySelectorAll("string, item, entry, token, account")) {
+      const textValue = String(node.textContent || "").trim();
+      if (/^\s*[\[{]/.test(textValue)) entries.push(...parseFreeOtpJsonValue(textValue));
+      const raw = {
+        issuer: node.getAttribute("issuer") || node.getAttribute("service") || node.getAttribute("name") || "",
+        account: node.getAttribute("account") || node.getAttribute("accountName") || node.getAttribute("username") || "",
+        secret: node.getAttribute("secret") || node.getAttribute("secretKey") || "",
+        type: node.getAttribute("type") || "",
+        algorithm: node.getAttribute("algorithm") || node.getAttribute("algo") || "",
+        digits: node.getAttribute("digits") || "",
+        period: node.getAttribute("period") || "",
+        counter: node.getAttribute("counter") || "",
+      };
+      if (raw.secret) entries.push(normalizeImportedEntry(raw, "XML"));
+    }
+    const seen = new Set();
+    return entries.filter((entry) => {
+      const key = entryDuplicateKey(entry);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function isProtectedJsonExport(json) {
+    if (!json || typeof json !== "object") return false;
+    return (
+      json.encrypted === true ||
+      json.passwordProtected === true ||
+      json.encryptedData ||
+      json.cipherString ||
+      json.encKeyValidation_DO_NOT_EDIT ||
+      String(json.format || json.type || "").toLowerCase().includes("encrypted")
+    );
   }
 
   function parseGenericJson(json) {
@@ -1052,6 +1144,7 @@
 
   function parseJsonImport(text) {
     const json = JSON.parse(text);
+    if (isProtectedJsonExport(json)) throw new Error(t("importProtectedUnsupported"));
     const parsers = [
       parseAegisJson,
       parseBitwardenJson,
@@ -1081,6 +1174,8 @@
     const results = [];
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
       results.push(...parseJsonImport(trimmed));
+    } else if (trimmed.startsWith("<")) {
+      results.push(...parseXmlImport(trimmed));
     } else {
       results.push(...parseCsvImport(trimmed));
     }
@@ -2416,9 +2511,9 @@
     try {
       state.importItems = previewImportItems(parseImportPayload(state.importText));
       state.importMessage = state.importItems.length ? "" : t("reasonUnsupported");
-    } catch {
+    } catch (error) {
       state.importItems = [];
-      state.importMessage = t("reasonUnsupported");
+      state.importMessage = error.message || t("reasonUnsupported");
     }
     render();
   }
@@ -2549,8 +2644,13 @@
   function applyImportPayload(text, append) {
     const value = String(text || "").trim();
     state.importText = append && state.importText.trim() ? `${state.importText.trim()}\n${value}` : value;
-    state.importItems = previewImportItems(parseImportPayload(state.importText));
-    state.importMessage = state.importItems.length ? "" : t("reasonUnsupported");
+    try {
+      state.importItems = previewImportItems(parseImportPayload(state.importText));
+      state.importMessage = state.importItems.length ? "" : t("reasonUnsupported");
+    } catch (error) {
+      state.importItems = [];
+      state.importMessage = error.message || t("reasonUnsupported");
+    }
   }
 
   async function readQrImportFile(file) {
