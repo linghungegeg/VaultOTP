@@ -38,6 +38,7 @@
     renderScheduled: false,
     importOpen: false,
     settingsOpen: false,
+    scannerOpen: false,
     importText: "",
     importItems: [],
     importMessage: "",
@@ -47,6 +48,9 @@
     offlineSecretIds: new Set(),
     pwaMessage: "",
   };
+  let qrScannerStream = null;
+  let qrScannerTimer = null;
+  let qrScannerBusy = false;
   i18n.setLocale(currentLocale);
 
   function escapeHtml(value) {
@@ -305,6 +309,9 @@
     state.editingId = null;
     state.message = "";
     state.otpCodes = new Map();
+    state.importOpen = false;
+    state.scannerOpen = false;
+    stopQrScanner();
     state.offlineSecrets = new Map();
     state.offlineSecretIds = new Set();
     state.pwaMessage = "";
@@ -1444,6 +1451,17 @@
             <label>${t("chooseFile")}</label>
             <input type="file" data-action="import-file" accept=".txt,.json,.csv,.2fas,.aegis,image/*" />
           </div>
+          <div class="import-scan-panel">
+            <div>
+              <div class="section-title">${t("scanQr")}</div>
+              <div class="muted">${t("scanQrHint")}</div>
+            </div>
+            <div class="inline-actions">
+              <button class="ghost" data-action="open-scanner" ${state.scannerOpen ? "disabled" : ""}>${t("startScan")}</button>
+              ${state.scannerOpen ? `<button class="ghost" data-action="close-scanner">${t("stopScan")}</button>` : ""}
+            </div>
+            ${state.scannerOpen ? `<video id="qr-scan-video" class="qr-scan-video" autoplay muted playsinline></video>` : ""}
+          </div>
           <div class="field">
             <label>${t("importSource")}</label>
             <textarea id="import-text" class="import-text" placeholder="${t("importHint")}">${escapeHtml(state.importText)}</textarea>
@@ -1745,6 +1763,8 @@
       state.importText = "";
       state.importItems = [];
       state.importMessage = "";
+      state.scannerOpen = false;
+      stopQrScanner();
       await loadUserData();
       render();
     } catch {
@@ -1755,14 +1775,19 @@
 
   async function readImportFile(file) {
     try {
-      state.importText = file.type.startsWith("image/") ? await readQrImportFile(file) : await file.text();
-      state.importMessage = "";
-      state.importItems = previewImportItems(parseImportPayload(state.importText));
-    } catch {
+      applyImportPayload(file.type.startsWith("image/") ? await readQrImportFile(file) : await file.text(), false);
+    } catch (error) {
       state.importItems = [];
-      state.importMessage = t("importFileUnsupported");
+      state.importMessage = file.type.startsWith("image/") && error.message === "barcode_detector_unavailable" ? t("scanUnsupported") : t("importFileUnsupported");
     }
     render();
+  }
+
+  function applyImportPayload(text, append) {
+    const value = String(text || "").trim();
+    state.importText = append && state.importText.trim() ? `${state.importText.trim()}\n${value}` : value;
+    state.importItems = previewImportItems(parseImportPayload(state.importText));
+    state.importMessage = state.importItems.length ? "" : t("reasonUnsupported");
   }
 
   async function readQrImportFile(file) {
@@ -1776,6 +1801,65 @@
       return values.join("\n");
     } finally {
       image.close?.();
+    }
+  }
+
+  function stopQrScanner() {
+    if (qrScannerTimer) {
+      clearInterval(qrScannerTimer);
+      qrScannerTimer = null;
+    }
+    if (qrScannerStream) {
+      qrScannerStream.getTracks().forEach((track) => track.stop());
+      qrScannerStream = null;
+    }
+    qrScannerBusy = false;
+  }
+
+  async function startQrScanner() {
+    stopQrScanner();
+    if (!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) {
+      state.scannerOpen = false;
+      state.importMessage = t("scanUnsupported");
+      render();
+      return;
+    }
+    const video = document.getElementById("qr-scan-video");
+    if (!video) return;
+    try {
+      qrScannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      video.srcObject = qrScannerStream;
+      await video.play();
+      const detector = new BarcodeDetector({ formats: ["qr_code"] });
+      qrScannerTimer = setInterval(async () => {
+        if (qrScannerBusy || !qrScannerStream) return;
+        qrScannerBusy = true;
+        try {
+          const codes = await detector.detect(video);
+          const values = codes.map((code) => code.rawValue).filter(Boolean);
+          if (values.length) {
+            stopQrScanner();
+            state.scannerOpen = false;
+            try {
+              applyImportPayload(values.join("\n"), true);
+            } catch {
+              state.importText = values.join("\n");
+              state.importItems = [];
+              state.importMessage = t("reasonUnsupported");
+            }
+            render();
+          }
+        } catch {
+          // Transient decode failures are normal while scanning video frames.
+        } finally {
+          qrScannerBusy = false;
+        }
+      }, 500);
+    } catch {
+      stopQrScanner();
+      state.scannerOpen = false;
+      state.importMessage = t("scanUnavailable");
+      render();
     }
   }
 
@@ -1988,7 +2072,21 @@
       render();
     }
     if (action === "close-import") {
+      stopQrScanner();
       state.importOpen = false;
+      state.importMessage = "";
+      state.scannerOpen = false;
+      render();
+    }
+    if (action === "open-scanner") {
+      state.scannerOpen = true;
+      state.importMessage = t("scanStarting");
+      render();
+      await startQrScanner();
+    }
+    if (action === "close-scanner") {
+      stopQrScanner();
+      state.scannerOpen = false;
       state.importMessage = "";
       render();
     }

@@ -918,6 +918,25 @@ textarea {
   min-height: 140px;
 }
 
+.import-scan-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.qr-scan-video {
+  aspect-ratio: 4 / 3;
+  background: #111827;
+  border-radius: 8px;
+  display: block;
+  max-height: 360px;
+  object-fit: cover;
+  width: 100%;
+}
+
 .import-preview {
   border: 1px solid var(--line);
   border-radius: 8px;
