@@ -202,7 +202,7 @@ function publicPageConfig(pathname) {
 
 function publicPageLinks(origin, locale) {
   return publicPages()
-    .map((page) => `<a href="${origin}${page.path}${locale === "en" ? "?lang=en" : ""}">{{${page.key}}}</a>`)
+    .map((page) => `<a href="${page.path}${locale === "en" ? "?lang=en" : ""}">{{${page.key}}}</a>`)
     .join("");
 }
 
