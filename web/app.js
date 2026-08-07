@@ -1620,6 +1620,9 @@
                   ${state.groups.map((group) => `<option value="${group.id}" ${state.batchGroupId === group.id ? "selected" : ""}>${escapeHtml(group.name)}</option>`).join("")}
                 </select>
                 <button class="ghost" data-action="move-selected" ${selectedCount ? "" : "disabled"}>${t("moveSelected")}</button>
+                <button class="ghost" data-action="pin-selected" ${selectedCount ? "" : "disabled"}>${t("pinSelected")}</button>
+                <button class="ghost" data-action="unpin-selected" ${selectedCount ? "" : "disabled"}>${t("unpinSelected")}</button>
+                <button class="ghost" data-action="export-selected" ${selectedCount ? "" : "disabled"}>${t("exportSelected")}</button>
                 <button class="danger" data-action="delete-selected" ${selectedCount ? "" : "disabled"}>${t("deleteSelected")}</button>
               </div>
             `
@@ -1680,6 +1683,7 @@
     if (state.settingsSection === "pwa") return pwaPanel();
     if (state.settingsSection === "pat") return patPanel();
     if (state.settingsSection === "transfer") return transferSettingsPanel();
+    if (state.settingsSection === "organize") return organizeSettingsPanel();
     if (state.settingsSection === "activity") return activitySettingsPanel();
     return settingsOverview();
   }
@@ -1692,6 +1696,7 @@
       ["pwa", t("settingsPwa"), t("settingsPwaHint")],
       ["pat", t("settingsPat"), t("settingsPatHint")],
       ["transfer", t("settingsTransfer"), t("settingsTransferHint")],
+      ["organize", t("settingsOrganize"), t("settingsOrganizeHint")],
       ["activity", t("settingsActivity"), t("settingsActivityHint")],
     ];
     return `
@@ -1744,6 +1749,31 @@
           </div>
         </div>
         ${exportPanel()}
+      </div>
+    `;
+  }
+
+  function organizeSettingsPanel() {
+    return `
+      <div class="settings-section-stack">
+        <div class="sidebar-section">
+          <div class="section-title">${t("groupManagement")}</div>
+          <div class="muted">${t("groupManagementHint")}</div>
+          <div class="group-manage-list">
+            ${state.groups
+              .map(
+                (group) => `
+                  <div class="group-manage-row">
+                    <span>${escapeHtml(group.name)}</span>
+                    <span class="badge">${countGroup(group.id)}</span>
+                    <button class="ghost" data-action="rename-group" data-id="${escapeHtml(group.id)}">${t("renameGroup")}</button>
+                    <button class="danger" data-action="delete-group" data-id="${escapeHtml(group.id)}" ${group.id === "default" ? "disabled" : ""}>${t("deleteGroup")}</button>
+                  </div>
+                `,
+              )
+              .join("")}
+          </div>
+        </div>
       </div>
     `;
   }
@@ -2865,6 +2895,42 @@
     render();
   }
 
+  async function setSelectedEntriesPinned(pinned) {
+    const entries = selectedEntriesInCurrentView().filter((entry) => !entry.deletedAt);
+    await Promise.all(entries.map((entry) => api(`/api/entries/${entry.id}`, { method: "PATCH", body: JSON.stringify({ pinned }) })));
+    state.selectedEntryIds = new Set();
+    await loadUserData();
+    render();
+  }
+
+  async function exportSelectedEntries() {
+    const entries = selectedEntriesInCurrentView().filter((entry) => !entry.deletedAt);
+    if (!entries.length || !confirm(t("plainExportConfirm"))) return;
+    const lines = await Promise.all(entries.map((entry) => fetchEntryUri(entry.id)));
+    downloadText(`vaultotp-selected-${Date.now()}.txt`, lines.join("\n"));
+    recordTransfer(t("plainExportDone"));
+    render();
+  }
+
+  async function renameGroup(id) {
+    const group = state.groups.find((item) => item.id === id);
+    if (!group) return;
+    const name = prompt(t("renameGroupPrompt"), group.name);
+    if (!name || name.trim() === group.name) return;
+    await api(`/api/groups/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name: name.trim() }) });
+    await loadUserData();
+    render();
+  }
+
+  async function deleteGroup(id) {
+    if (id === "default" || !confirm(t("deleteGroupConfirm"))) return;
+    await api(`/api/groups/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (state.groupFilter === id) state.groupFilter = "all";
+    state.batchGroupId = "default";
+    await loadUserData();
+    render();
+  }
+
   async function deleteSelectedEntries() {
     const entries = selectedEntriesInCurrentView().filter((entry) => !entry.deletedAt);
     if (!entries.length || !confirm(t("deleteSelectedConfirm", { count: entries.length }))) return;
@@ -3227,6 +3293,9 @@
       render();
     }
     if (action === "move-selected") await moveSelectedEntries();
+    if (action === "pin-selected") await setSelectedEntriesPinned(true);
+    if (action === "unpin-selected") await setSelectedEntriesPinned(false);
+    if (action === "export-selected") await exportSelectedEntries();
     if (action === "delete-selected") await deleteSelectedEntries();
     if (action === "restore-selected") await restoreSelectedEntries();
     if (action === "delete-selected-permanent") await deleteSelectedEntriesPermanently();
@@ -3239,6 +3308,8 @@
     if (action === "rotate-pat") await rotatePat(id);
     if (action === "disable-pat") await disablePat(id);
     if (action === "delete-pat") await deletePat(id);
+    if (action === "rename-group") await renameGroup(id);
+    if (action === "delete-group") await deleteGroup(id);
   });
 
   document.addEventListener("input", (event) => {

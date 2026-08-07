@@ -373,7 +373,28 @@ textarea {
 }
 
 .batch-actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.group-manage-list {
+  display: grid;
+  gap: 8px;
+}
+
+.group-manage-row {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  padding: 8px;
+}
+
+.group-manage-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .entry {
@@ -1280,6 +1301,10 @@ textarea {
   }
 
   .batch-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .group-manage-row {
     grid-template-columns: 1fr;
   }
 
