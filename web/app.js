@@ -2654,17 +2654,58 @@
   }
 
   async function readQrImportFile(file) {
-    if (!("BarcodeDetector" in window)) throw new Error("barcode_detector_unavailable");
     const image = await createImageBitmap(file);
     try {
-      const detector = new BarcodeDetector({ formats: ["qr_code"] });
-      const codes = await detector.detect(image);
-      const values = codes.map((code) => code.rawValue).filter(Boolean);
+      const values = await readQrValues(image);
       if (!values.length) throw new Error("qr_not_found");
       return values.join("\n");
     } finally {
       image.close?.();
     }
+  }
+
+  function getJsQrDecoder() {
+    if (typeof window.jsQR === "function") return window.jsQR;
+    if (typeof window.jsQR?.default === "function") return window.jsQR.default;
+    return null;
+  }
+
+  function readQrWithJsQr(source) {
+    const decode = getJsQrDecoder();
+    if (!decode) return [];
+    const width = source.videoWidth || source.naturalWidth || source.width;
+    const height = source.videoHeight || source.naturalHeight || source.height;
+    if (!width || !height) return [];
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.drawImage(source, 0, 0, width, height);
+    const read = (x, y, sizeWidth, sizeHeight) => {
+      const imageData = context.getImageData(x, y, sizeWidth, sizeHeight);
+      const qr = decode(imageData.data, sizeWidth, sizeHeight);
+      return qr?.data ? [qr.data] : [];
+    };
+    const direct = read(0, 0, width, height);
+    if (direct.length) return direct;
+    const size = Math.min(width, height);
+    const x = Math.floor((width - size) / 2);
+    const y = Math.floor((height - size) / 2);
+    return read(x, y, size, size);
+  }
+
+  async function readQrValues(source) {
+    if ("BarcodeDetector" in window) {
+      try {
+        const detector = new BarcodeDetector({ formats: ["qr_code"] });
+        const codes = await detector.detect(source);
+        const values = codes.map((code) => code.rawValue).filter(Boolean);
+        if (values.length) return values;
+      } catch {
+        // Fall back to jsQR for browsers or images that BarcodeDetector cannot read.
+      }
+    }
+    return readQrWithJsQr(source);
   }
 
   function stopQrScanner() {
@@ -2681,7 +2722,7 @@
 
   async function startQrScanner() {
     stopQrScanner();
-    if (!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia || (!("BarcodeDetector" in window) && !getJsQrDecoder())) {
       state.scannerOpen = false;
       state.importMessage = t("scanUnsupported");
       render();
@@ -2693,13 +2734,11 @@
       qrScannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
       video.srcObject = qrScannerStream;
       await video.play();
-      const detector = new BarcodeDetector({ formats: ["qr_code"] });
       qrScannerTimer = setInterval(async () => {
         if (qrScannerBusy || !qrScannerStream) return;
         qrScannerBusy = true;
         try {
-          const codes = await detector.detect(video);
-          const values = codes.map((code) => code.rawValue).filter(Boolean);
+          const values = await readQrValues(video);
           if (values.length) {
             stopQrScanner();
             state.scannerOpen = false;

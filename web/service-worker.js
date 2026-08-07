@@ -1,5 +1,5 @@
 const CACHE_NAME = "vaultotp-pwa-v1";
-const APP_SHELL = ["/app", "/styles.css", "/app.js", "/extension/i18n.js", "/manifest.webmanifest", "/icon.svg"];
+const APP_SHELL = ["/app", "/styles.css", "/jsQR.js", "/app.js", "/extension/i18n.js", "/manifest.webmanifest", "/icon.svg"];
 
 async function refreshAppShell() {
   const cache = await caches.open(CACHE_NAME);
