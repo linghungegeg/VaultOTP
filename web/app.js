@@ -1630,46 +1630,61 @@
     app.innerHTML = `
       <div class="layout user-layout">
         <aside class="sidebar user-sidebar">
-          <div class="sidebar-heading">
-            <div class="section-title">${t("authTitle")}</div>
-            <div class="muted">${escapeHtml(state.user?.email || "")}</div>
+          <div>
+            <div class="brand-header-row" style="margin-bottom: 20px;">
+              <div class="brand-logo-container">
+                ${renderBrandLogoSvg(false)}
+                <div class="brand-name">${t("authTitle")}</div>
+              </div>
+            </div>
+            <nav class="user-nav-tree">
+              <div class="nav-tree-section">
+                <div class="nav-tree-header">${t("vaultSection")}</div>
+                <div class="nav-tree-list">
+                  ${groupButton("all", t("allGroups"), activeEntries().length)}
+                  ${state.groups.map((group) => groupButton(group.id, group.name, countGroup(group.id))).join("")}
+                  <button class="nav-tree-item ${!state.settingsOpen && state.lifecycleView === "trash" ? "active" : ""}" type="button" data-action="show-trash">
+                    <span class="nav-tree-item-left">
+                      <svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                      <span>${t("trash")}</span>
+                    </span>
+                    <span class="nav-count-badge">${trashedEntries().length}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="nav-tree-section">
+                <div class="nav-tree-header">${t("settingsSection")}</div>
+                <div class="nav-tree-list">
+                  ${settingsItems.map(([id, label]) => settingsNavButton(id, label)).join("")}
+                </div>
+              </div>
+            </nav>
           </div>
-          <nav class="user-nav">
-            <section class="nav-section">
-              <div class="nav-section-title">${t("serverBacked")}</div>
-              <div class="group-list">
-                ${groupButton("all", t("allGroups"), activeEntries().length)}
-                ${state.groups.map((group) => groupButton(group.id, group.name, countGroup(group.id))).join("")}
-                <button class="group-item ${!state.settingsOpen && state.lifecycleView === "trash" ? "active" : ""}" type="button" data-action="show-trash">
-                  <span>${t("trash")}</span>
-                  <span>${trashedEntries().length}</span>
-                </button>
-              </div>
-            </section>
-            <section class="nav-section">
-              <div class="nav-section-title">${t("settings")}</div>
-              <div class="group-list">
-                ${settingsItems.map(([id, label]) => settingsNavButton(id, label)).join("")}
-              </div>
-            </section>
-          </nav>
+          <div class="user-sidebar-footer">
+            <span class="user-status-pill">
+              <span class="badge-dot"></span>${t("localStatus")}
+            </span>
+          </div>
         </aside>
+
         <main class="content user-content">
           <header class="topbar user-topbar">
-            <div class="user-account">
-              <span class="muted">${t("currentUser")}</span>
-              <strong>${escapeHtml(state.user?.email || "")}</strong>
+            <div class="user-topbar-left">
+              <div class="global-search-wrapper">
+                <svg class="global-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input id="search" class="global-search-input" placeholder="${t("searchPlaceholder")}" value="${escapeHtml(state.search)}" />
+                <kbd class="kbd-badge">Ctrl+K</kbd>
+              </div>
             </div>
-            <div class="field user-search">
-              <label for="search">${t("search")}</label>
-              <input id="search" value="${escapeHtml(state.search)}" />
-            </div>
-            <div class="inline-actions user-top-actions">
-              <button class="primary" type="button" data-action="open-import">${t("importEntries")}</button>
-              <button class="ghost" type="button" data-action="new-entry">${t("addEntry")}</button>
+            <div class="user-topbar-right">
+              <button class="primary" type="button" data-action="new-entry">+ ${t("addEntry")}</button>
+              <button class="ghost" type="button" data-action="open-import">${t("importEntries")}</button>
               <button class="ghost" type="button" data-action="lock-now">${t("lockNow")}</button>
+              ${languageSwitch()}
             </div>
           </header>
+
           <div class="user-main-stack">
             ${
               state.settingsOpen
@@ -1680,12 +1695,27 @@
                   <section class="entry-list">
                     ${entries.length ? entries.map(entryView).join("") : emptyEntryState()}
                   </section>
-                  ${state.editingId !== null ? `<section class="user-form-section">${entryForm()}</section>` : ""}
                 `
             }
           </div>
         </main>
       </div>
+
+      ${
+        state.editingId !== null
+          ? `
+            <div class="drawer-backdrop" data-action="close-drawer">
+              <div class="drawer-panel" onclick="event.stopPropagation()">
+                <div class="drawer-header">
+                  <div class="drawer-title">${state.editingId === "" ? t("newEntryDrawerTitle") : t("editEntryDrawerTitle")}</div>
+                  <button class="ghost" type="button" data-action="close-drawer" style="min-height:32px; padding:0 8px;">${t("close")}</button>
+                </div>
+                ${entryForm()}
+              </div>
+            </div>
+          `
+          : ""
+      }
       ${state.importOpen ? importPanel() : ""}
       ${state.shareUri ? sharePanel() : ""}
     `;
@@ -2166,18 +2196,30 @@
   }
 
   function groupButton(id, name, count) {
+    const isActive = !state.settingsOpen && state.lifecycleView === "active" && state.groupFilter === id;
+    const iconSvg = id === "all"
+      ? `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`
+      : `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>`;
     return `
-      <button class="group-item ${!state.settingsOpen && state.lifecycleView === "active" && state.groupFilter === id ? "active" : ""}" type="button" data-group="${escapeHtml(id)}">
-        <span>${escapeHtml(name)}</span>
-        <span>${count}</span>
+      <button class="nav-tree-item ${isActive ? "active" : ""}" type="button" data-group="${escapeHtml(id)}">
+        <span class="nav-tree-item-left">
+          ${iconSvg}
+          <span>${escapeHtml(name)}</span>
+        </span>
+        <span class="nav-count-badge">${count}</span>
       </button>
     `;
   }
 
   function settingsNavButton(id, label) {
+    const isActive = state.settingsOpen && state.settingsSection === id;
+    const settingsSvg = `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
     return `
-      <button class="group-item ${state.settingsOpen && state.settingsSection === id ? "active" : ""}" type="button" data-settings-section="${id}">
-        <span>${escapeHtml(label)}</span>
+      <button class="nav-tree-item ${isActive ? "active" : ""}" type="button" data-settings-section="${id}">
+        <span class="nav-tree-item-left">
+          ${settingsSvg}
+          <span>${escapeHtml(label)}</span>
+        </span>
       </button>
     `;
   }
@@ -3332,6 +3374,12 @@
     }
     const action = target.dataset.action;
     const id = target.dataset.id;
+    if (action === "close-drawer" || action === "clear-edit") {
+      state.editingId = null;
+      state.message = "";
+      render();
+      return;
+    }
     if (action === "new-entry") {
       state.editingId = "";
       state.settingsOpen = false;
@@ -3466,6 +3514,14 @@
     }
     if (event.target.id === "import-text") {
       state.importText = event.target.value;
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      const searchInput = document.getElementById("search");
+      if (searchInput) searchInput.focus();
     }
   });
 
