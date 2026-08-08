@@ -1359,7 +1359,7 @@ textarea {
 
 .admin-layout {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -1370,8 +1370,10 @@ textarea {
 
 .admin-sidebar {
   background: var(--panel);
-  border-right: 1px solid var(--line);
-  padding: 18px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(8, 145, 178, 0.25);
+  padding: 20px 16px;
 }
 
 .sidebar-section {

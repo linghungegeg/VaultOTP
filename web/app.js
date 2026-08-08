@@ -33,6 +33,7 @@
     adminDetail: null,
     siteSettings: null,
     adminSelectedUserEmail: "",
+    adminView: "users",
     adminAudit: [],
     adminReveals: {},
     editingId: null,
@@ -2093,59 +2094,111 @@
   function renderAdminApp() {
     app.className = "screen admin-screen";
     const selected = state.adminUsers.find((item) => item.email === state.adminSelectedUserEmail) || state.adminUsers[0] || null;
-    app.innerHTML = `
+    const view = state.adminView || "users";
+    return `
       <div class="admin-layout">
-        <aside class="admin-sidebar">
-          <div class="brand-row">
-            <div>
-              <div class="brand">${t("adminTitle")}</div>
-              <div class="muted">${escapeHtml(state.admin?.email || "")}</div>
+        <aside class="sidebar user-sidebar admin-sidebar">
+          <div>
+            <div class="brand-header-row" style="margin-bottom: 20px;">
+              <div class="brand-logo-container">
+                ${renderBrandLogoSvg(true)}
+                <div>
+                  <div class="brand-name" style="font-size: 19px;">${t("adminConsoleTitle")}</div>
+                  <div class="hero-subtitle">${escapeHtml(state.admin?.email || "")}</div>
+                </div>
+              </div>
             </div>
-            <div class="inline-actions">
+            <nav class="user-nav-tree">
+              <div class="nav-tree-section">
+                <div class="nav-tree-header">${t("adminSystemSection")}</div>
+                <div class="nav-tree-list">
+                  <button class="nav-tree-item ${view === "users" ? "active" : ""}" type="button" data-admin-view="users">
+                    <span class="nav-tree-item-left">
+                      <svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                      <span>${t("adminUsersTitle")}</span>
+                    </span>
+                    <span class="nav-count-badge">${state.adminUsers.length}</span>
+                  </button>
+                  <button class="nav-tree-item ${view === "site" ? "active" : ""}" type="button" data-admin-view="site">
+                    <span class="nav-tree-item-left">
+                      <svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" x2="22" y1="12" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                      <span>${t("adminSiteSection")}</span>
+                    </span>
+                  </button>
+                  <button class="nav-tree-item ${view === "audit" ? "active" : ""}" type="button" data-admin-view="audit">
+                    <span class="nav-tree-item-left">
+                      <svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/></svg>
+                      <span>${t("adminAuditTitle")}</span>
+                    </span>
+                    <span class="nav-count-badge">${state.adminAudit.length}</span>
+                  </button>
+                </div>
+              </div>
+            </nav>
+          </div>
+          <div class="user-sidebar-footer">
+            <span class="badge badge-admin" style="width: 100%; justify-content: center;">
+              <span class="badge-dot"></span>${t("adminBadge")}
+            </span>
+          </div>
+        </aside>
+
+        <main class="content user-content admin-main">
+          <header class="topbar user-topbar admin-topbar">
+            <div class="user-topbar-left">
+              <div class="global-search-wrapper">
+                <svg class="global-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input id="admin-search" class="global-search-input" placeholder="${t("adminSearchPlaceholder")}" />
+              </div>
+            </div>
+            <div class="user-topbar-right">
               ${languageSwitch()}
               <button class="ghost" type="button" data-route="app">${t("adminBackToUser")}</button>
-            </div>
-          </div>
-          <div class="sidebar-section">
-            <div class="section-title">${t("adminUsersTitle")}</div>
-            <div class="admin-user-list">
-              ${
-                state.adminUsers.length
-                  ? state.adminUsers
-                      .map(
-                        (user) => `
-                          <button class="admin-user-item ${state.adminSelectedUserEmail === user.email ? "active" : ""}" data-admin-user="${escapeHtml(user.email)}">
-                            <span>${escapeHtml(user.email)}</span>
-                            <span class="badge ${user.status === "disabled" ? "disabled-badge" : ""}">${escapeHtml(t(user.status || "active"))}</span>
-                          </button>
-                        `,
-                      )
-                      .join("")
-                  : `<div class="empty">${t("noUsers")}</div>`
-              }
-            </div>
-          </div>
-          <div class="sidebar-section">
-            <div class="section-title">${t("adminAuditTitle")}</div>
-            <div class="admin-audit-list">
-              ${state.adminAudit.length ? state.adminAudit.slice(0, 12).map(adminAuditRow).join("") : `<div class="empty">${t("adminAuditTitle")}</div>`}
-            </div>
-          </div>
-          ${siteSettingsPanel()}
-        </aside>
-        <main class="admin-main">
-          <header class="topbar admin-topbar">
-            <div>
-              <strong>${t("adminUsersTitle")}</strong>
-              <span class="muted">${selected ? escapeHtml(selected.email) : t("adminNoSelection")}</span>
-            </div>
-            <div class="inline-actions">
-              <button class="ghost" type="button" data-action="admin-logout">${t("adminLogout")}</button>
+              <button class="danger" type="button" data-action="admin-logout">${t("adminLogout")}</button>
             </div>
           </header>
-          <section class="admin-content">
-            ${selected && state.adminDetail ? adminDetailPanel() : `<div class="empty">${t("adminNoSelection")}</div>`}
-          </section>
+
+          <div class="user-main-stack" style="padding: 20px;">
+            ${
+              view === "site"
+                ? siteSettingsPanel()
+                : view === "audit"
+                ? `
+                  <div class="sidebar-section" style="margin:0;">
+                    <div class="section-title">${t("adminAuditTitle")} (${state.adminAudit.length})</div>
+                    <div class="admin-audit-list">
+                      ${state.adminAudit.length ? state.adminAudit.map(adminAuditRow).join("") : `<div class="empty">${t("adminAuditTitle")}</div>`}
+                    </div>
+                  </div>
+                `
+                : `
+                  <div class="admin-workspace-grid" style="display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 18px;">
+                    <div class="sidebar-section" style="margin:0;">
+                      <div class="section-title">${t("adminUsersTitle")} (${state.adminUsers.length})</div>
+                      <div class="admin-user-list">
+                        ${
+                          state.adminUsers.length
+                            ? state.adminUsers
+                                .map(
+                                  (user) => `
+                                    <button class="admin-user-item ${state.adminSelectedUserEmail === user.email ? "active" : ""}" data-admin-user="${escapeHtml(user.email)}">
+                                      <span>${escapeHtml(user.email)}</span>
+                                      <span class="badge ${user.status === "disabled" ? "disabled-badge" : ""}">${escapeHtml(t(user.status || "active"))}</span>
+                                    </button>
+                                  `,
+                                )
+                                .join("")
+                            : `<div class="empty">${t("noUsers")}</div>`
+                        }
+                      </div>
+                    </div>
+                    <div class="admin-detail-stack">
+                      ${selected && state.adminDetail ? adminDetailPanel() : `<div class="empty">${t("adminNoSelection")}</div>`}
+                    </div>
+                  </div>
+                `
+            }
+          </div>
         </main>
       </div>
     `;
@@ -3357,6 +3410,11 @@
     if (target.dataset.entryId) {
       state.editingId = target.dataset.entryId;
       state.settingsOpen = false;
+      render();
+      return;
+    }
+    if (target.dataset.adminView) {
+      state.adminView = target.dataset.adminView;
       render();
       return;
     }
