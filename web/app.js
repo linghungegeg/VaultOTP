@@ -1416,36 +1416,106 @@
     renderUserApp();
   }
 
+  function renderBrandLogoSvg(isAdmin = false) {
+    const gradientId = isAdmin ? "admin-grad" : "user-grad";
+    const stop1 = isAdmin ? "#0891b2" : "#059669";
+    const stop2 = isAdmin ? "#0284c7" : "#0891b2";
+    return `
+      <svg class="brand-logo-svg ${isAdmin ? "admin-logo" : ""}" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="${stop1}" />
+            <stop offset="100%" stop-color="${stop2}" />
+          </linearGradient>
+        </defs>
+        <rect width="512" height="512" rx="128" fill="url(#${gradientId})"/>
+        <path fill="#ffffff" d="M256 96c-60 0-108 48-108 108v36h-16c-18 0-32 14-32 32v112c0 18 14 32 32 32h248c18 0 32-14 32-32V272c0-18-14-32-32-32h-16v-36c0-60-48-108-108-108Zm0 48c33 0 60 27 60 60v36H196v-36c0-33 27-60 60-60Zm0 136c18 0 32 14 32 32 0 11-6 21-15 27v29h-34v-29c-9-6-15-16-15-27 0-18 14-32 32-32Z"/>
+      </svg>
+    `;
+  }
+
+  function renderEmailIconSvg() {
+    return `<svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`;
+  }
+
+  function renderKeyIconSvg() {
+    return `<svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3"/></svg>`;
+  }
+
+  function renderEyeIconSvg(visible = false) {
+    return visible
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  }
+
   function renderAuth() {
     app.className = "screen auth-screen";
     app.innerHTML = `
       <section class="auth-panel">
-        <div class="brand-row">
-          <div class="brand">${t("authTitle")}</div>
-          ${languageSwitch()}
+        <div class="auth-header">
+          <div class="brand-header-row">
+            <div class="brand-logo-container">
+              ${renderBrandLogoSvg(false)}
+              <div class="brand-name">${t("authTitle")}</div>
+            </div>
+            ${languageSwitch()}
+          </div>
+          <div class="hero-subtitle">${t("heroSubtitle")}</div>
+          <div class="hero-badges">
+            <span class="badge badge-privacy" title="${t("taglinePrivacyHint")}">
+              <span class="badge-dot"></span>${t("taglinePrivacy")}
+            </span>
+            <span class="badge badge-free" title="${t("taglineFreeHint")}">
+              <span class="badge-dot"></span>${t("taglineFree")}
+            </span>
+          </div>
         </div>
+
+        <div class="segmented-tabs">
+          <button type="button" class="segmented-tab ${state.authMode === "login" ? "active" : ""}" data-auth-mode="login">
+            ${t("tabLogin")}
+          </button>
+          <button type="button" class="segmented-tab ${state.authMode === "register" ? "active" : ""}" data-auth-mode="register">
+            ${t("tabRegister")}
+          </button>
+        </div>
+
         <form id="auth-form">
           <div class="field">
             <label for="email">${t("email")}</label>
-            <input id="email" name="email" type="email" autocomplete="username" required />
+            <div class="input-with-icon">
+              ${renderEmailIconSvg()}
+              <input id="email" name="email" type="email" autocomplete="username" required />
+            </div>
           </div>
           <div class="field">
             <label for="password">${t("password")}</label>
-            <input id="password" name="password" type="password" autocomplete="${state.authMode === "login" ? "current-password" : "new-password"}" required />
+            <div class="input-with-icon">
+              ${renderKeyIconSvg()}
+              <input id="password" name="password" type="password" autocomplete="${state.authMode === "login" ? "current-password" : "new-password"}" required />
+              <button type="button" class="eye-toggle-btn" data-target-input="password" title="${t("showCode")}">
+                ${renderEyeIconSvg(false)}
+              </button>
+            </div>
           </div>
           ${
             state.authMode === "register"
               ? `<div class="field">
                   <label for="confirmPassword">${t("confirmPassword")}</label>
-                  <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required />
+                  <div class="input-with-icon">
+                    ${renderKeyIconSvg()}
+                    <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required />
+                    <button type="button" class="eye-toggle-btn" data-target-input="confirmPassword" title="${t("showCode")}">
+                      ${renderEyeIconSvg(false)}
+                    </button>
+                  </div>
                 </div>`
               : ""
           }
           <div class="error">${escapeHtml(state.message)}</div>
-          <div class="auth-actions">
-            <button class="primary" type="submit">${state.authMode === "login" ? t("loginAction") : t("createAccount")}</button>
-            <button class="ghost" type="button" data-auth-mode="${state.authMode === "login" ? "register" : "login"}">
-              ${state.authMode === "login" ? t("register") : t("login")}
+          <div class="auth-actions" style="margin-top: 18px;">
+            <button class="primary" type="submit" style="width: 100%; min-height: 42px;">
+              ${state.authMode === "login" ? t("loginAction") : t("createAccount")}
             </button>
           </div>
         </form>
@@ -1458,33 +1528,64 @@
     const setupMode = state.hasAdmin === false;
     app.innerHTML = `
       <section class="auth-panel admin-auth">
-        <div class="brand-row">
-          <div>
-            <div class="brand">${t("adminTitle")}</div>
-            ${setupMode ? `<div class="muted">${t("adminCreateHint")}</div>` : ""}
+        <div class="auth-header">
+          <div class="brand-header-row">
+            <div class="brand-logo-container">
+              ${renderBrandLogoSvg(true)}
+              <div>
+                <div class="brand-name" style="font-size: 19px;">${t("adminConsoleTitle")}</div>
+                <div class="hero-subtitle">${setupMode ? t("setupAdminHint") : t("adminConsoleSubtitle")}</div>
+              </div>
+            </div>
+            ${languageSwitch()}
           </div>
-          ${languageSwitch()}
+          <div class="hero-badges">
+            <span class="badge ${setupMode ? "badge-admin-setup" : "badge-admin"}">
+              <span class="badge-dot"></span>${setupMode ? t("setupAdminTitle") : t("adminBadge")}
+            </span>
+          </div>
         </div>
+
         <form id="admin-auth-form">
           <div class="field">
             <label for="adminEmail">${t("email")}</label>
-            <input id="adminEmail" name="email" type="email" autocomplete="username" required />
+            <div class="input-with-icon">
+              ${renderEmailIconSvg()}
+              <input id="adminEmail" name="email" type="email" autocomplete="username" required />
+            </div>
           </div>
           <div class="field">
             <label for="adminPassword">${t("password")}</label>
-            <input id="adminPassword" name="password" type="password" autocomplete="${setupMode ? "new-password" : "current-password"}" required />
+            <div class="input-with-icon">
+              ${renderKeyIconSvg()}
+              <input id="adminPassword" name="password" type="password" autocomplete="${setupMode ? "new-password" : "current-password"}" required />
+              <button type="button" class="eye-toggle-btn" data-target-input="adminPassword" title="${t("showCode")}">
+                ${renderEyeIconSvg(false)}
+              </button>
+            </div>
           </div>
           ${
             setupMode
               ? `<div class="field">
                   <label for="adminConfirmPassword">${t("confirmPassword")}</label>
-                  <input id="adminConfirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required />
+                  <div class="input-with-icon">
+                    ${renderKeyIconSvg()}
+                    <input id="adminConfirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required />
+                    <button type="button" class="eye-toggle-btn" data-target-input="adminConfirmPassword" title="${t("showCode")}">
+                      ${renderEyeIconSvg(false)}
+                    </button>
+                  </div>
                 </div>`
               : ""
           }
           <div class="error">${escapeHtml(state.adminMessage)}</div>
-          <button class="primary" type="submit">${setupMode ? t("setupAdmin") : t("adminLogin")}</button>
+          <button class="primary" type="submit" style="width: 100%; min-height: 42px; margin-top: 14px; background: #0891b2; border-color: #0891b2;">
+            ${setupMode ? t("setupAdmin") : t("adminLogin")}
+          </button>
         </form>
+        <div class="back-auth-row">
+          <span class="back-auth-link" data-route="app">${t("backToUserAuth")}</span>
+        </div>
       </section>
     `;
   }
@@ -3174,8 +3275,21 @@
   });
 
   document.addEventListener("click", async (event) => {
-    const target = event.target.closest("button, [data-entry-id]");
+    const target = event.target.closest("button, [data-entry-id], [data-route]");
     if (!target) return;
+    if (target.classList.contains("eye-toggle-btn") || target.closest(".eye-toggle-btn")) {
+      const btn = target.classList.contains("eye-toggle-btn") ? target : target.closest(".eye-toggle-btn");
+      const targetId = btn.dataset.targetInput;
+      if (targetId) {
+        const input = document.getElementById(targetId);
+        if (input) {
+          const isText = input.type === "text";
+          input.type = isText ? "password" : "text";
+          btn.innerHTML = renderEyeIconSvg(!isText);
+        }
+      }
+      return;
+    }
     if (target.dataset.locale) {
       changeLocale(target.dataset.locale);
       return;
@@ -3481,6 +3595,75 @@
       });
   }
 
+  function initParticleCanvas() {
+    const canvas = document.getElementById("particle-canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let width = (canvas.width = window.innerWidth);
+    let height = (canvas.height = window.innerHeight);
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const particleCount = prefersReducedMotion ? 12 : Math.min(40, Math.floor(width / 28));
+
+    const particles = Array.from({ length: particleCount }, () => ({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      vx: (Math.random() - 0.5) * 0.45,
+      vy: (Math.random() - 0.5) * 0.45,
+      radius: Math.random() * 2 + 1.2,
+      color: Math.random() > 0.4 ? "rgba(5, 150, 105, " : "rgba(8, 145, 178, ",
+      alpha: Math.random() * 0.35 + 0.15
+    }));
+
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    }
+
+    window.addEventListener("resize", resize, { passive: true });
+
+    function renderParticles() {
+      ctx.clearRect(0, 0, width, height);
+
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 125) {
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(5, 150, 105, ${0.14 * (1 - dist / 125)})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+      }
+
+      for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+
+        if (p.x < 0) p.x = width;
+        if (p.x > width) p.x = 0;
+        if (p.y < 0) p.y = height;
+        if (p.y > height) p.y = 0;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = p.color + p.alpha + ")";
+        ctx.fill();
+      }
+
+      requestAnimationFrame(renderParticles);
+    }
+
+    renderParticles();
+  }
+
   bootstrap()
     .catch(async () => {
       try {
@@ -3503,6 +3686,7 @@
       state.adminMessage = t("serverError");
     })
     .finally(() => {
+      initParticleCanvas();
       syncRouteFromLocation();
       render();
     });
