@@ -34,6 +34,7 @@
     siteSettings: null,
     adminSelectedUserEmail: "",
     adminView: "users",
+    adminSearch: "",
     adminAudit: [],
     adminReveals: {},
     editingId: null,
@@ -401,6 +402,7 @@
     state.adminDetail = null;
     state.siteSettings = null;
     state.adminSelectedUserEmail = "";
+    state.adminSearch = "";
     state.adminAudit = [];
     state.adminReveals = {};
     state.adminMessage = "";
@@ -1419,8 +1421,8 @@
 
   function renderBrandLogoSvg(isAdmin = false) {
     const gradientId = isAdmin ? "admin-grad" : "user-grad";
-    const stop1 = isAdmin ? "#0891b2" : "#059669";
-    const stop2 = isAdmin ? "#0284c7" : "#0891b2";
+    const stop1 = isAdmin ? "var(--accent-cyan)" : "var(--accent)";
+    const stop2 = isAdmin ? "var(--accent-cyan-hover)" : "var(--accent-cyan)";
     return `
       <svg class="brand-logo-svg ${isAdmin ? "admin-logo" : ""}" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
         <defs>
@@ -1430,7 +1432,7 @@
           </linearGradient>
         </defs>
         <rect width="512" height="512" rx="128" fill="url(#${gradientId})"/>
-        <path fill="#ffffff" d="M256 96c-60 0-108 48-108 108v36h-16c-18 0-32 14-32 32v112c0 18 14 32 32 32h248c18 0 32-14 32-32V272c0-18-14-32-32-32h-16v-36c0-60-48-108-108-108Zm0 48c33 0 60 27 60 60v36H196v-36c0-33 27-60 60-60Zm0 136c18 0 32 14 32 32 0 11-6 21-15 27v29h-34v-29c-9-6-15-16-15-27 0-18 14-32 32-32Z"/>
+        <path fill="var(--panel-solid)" d="M256 96c-60 0-108 48-108 108v36h-16c-18 0-32 14-32 32v112c0 18 14 32 32 32h248c18 0 32-14 32-32V272c0-18-14-32-32-32h-16v-36c0-60-48-108-108-108Zm0 48c33 0 60 27 60 60v36H196v-36c0-33 27-60 60-60Zm0 136c18 0 32 14 32 32 0 11-6 21-15 27v29h-34v-29c-9-6-15-16-15-27 0-18 14-32 32-32Z"/>
       </svg>
     `;
   }
@@ -1514,8 +1516,8 @@
               : ""
           }
           <div class="error">${escapeHtml(state.message)}</div>
-          <div class="auth-actions" style="margin-top: 18px;">
-            <button class="primary" type="submit" style="width: 100%; min-height: 42px;">
+          <div class="auth-actions auth-submit-actions">
+            <button class="primary full-submit" type="submit">
               ${state.authMode === "login" ? t("loginAction") : t("createAccount")}
             </button>
           </div>
@@ -1534,7 +1536,7 @@
             <div class="brand-logo-container">
               ${renderBrandLogoSvg(true)}
               <div>
-                <div class="brand-name" style="font-size: 19px;">${t("adminConsoleTitle")}</div>
+                <div class="brand-name brand-name-compact">${t("adminConsoleTitle")}</div>
                 <div class="hero-subtitle">${setupMode ? t("setupAdminHint") : t("adminConsoleSubtitle")}</div>
               </div>
             </div>
@@ -1580,7 +1582,7 @@
               : ""
           }
           <div class="error">${escapeHtml(state.adminMessage)}</div>
-          <button class="primary" type="submit" style="width: 100%; min-height: 42px; margin-top: 14px; background: #0891b2; border-color: #0891b2;">
+          <button class="primary full-submit admin-submit" type="submit">
             ${setupMode ? t("setupAdmin") : t("adminLogin")}
           </button>
         </form>
@@ -1632,7 +1634,7 @@
       <div class="layout user-layout">
         <aside class="sidebar user-sidebar">
           <div>
-            <div class="brand-header-row" style="margin-bottom: 20px;">
+            <div class="brand-header-row sidebar-brand-row">
               <div class="brand-logo-container">
                 ${renderBrandLogoSvg(false)}
                 <div class="brand-name">${t("authTitle")}</div>
@@ -1706,10 +1708,10 @@
         state.editingId !== null
           ? `
             <div class="drawer-backdrop" data-action="close-drawer">
-              <div class="drawer-panel" onclick="event.stopPropagation()">
+              <div class="drawer-panel">
                 <div class="drawer-header">
                   <div class="drawer-title">${state.editingId === "" ? t("newEntryDrawerTitle") : t("editEntryDrawerTitle")}</div>
-                  <button class="ghost" type="button" data-action="close-drawer" style="min-height:32px; padding:0 8px;">${t("close")}</button>
+                  <button class="ghost drawer-close-button" type="button" data-action="close-drawer">${t("close")}</button>
                 </div>
                 ${entryForm()}
               </div>
@@ -2095,15 +2097,19 @@
     app.className = "screen admin-screen";
     const selected = state.adminUsers.find((item) => item.email === state.adminSelectedUserEmail) || state.adminUsers[0] || null;
     const view = state.adminView || "users";
-    return `
+    const adminQuery = state.adminSearch.trim().toLowerCase();
+    const visibleAdminUsers = adminQuery
+      ? state.adminUsers.filter((user) => `${user.email} ${user.status || ""}`.toLowerCase().includes(adminQuery))
+      : state.adminUsers;
+    app.innerHTML = `
       <div class="admin-layout">
         <aside class="sidebar user-sidebar admin-sidebar">
           <div>
-            <div class="brand-header-row" style="margin-bottom: 20px;">
+            <div class="brand-header-row sidebar-brand-row">
               <div class="brand-logo-container">
                 ${renderBrandLogoSvg(true)}
                 <div>
-                  <div class="brand-name" style="font-size: 19px;">${t("adminConsoleTitle")}</div>
+                  <div class="brand-name brand-name-compact">${t("adminConsoleTitle")}</div>
                   <div class="hero-subtitle">${escapeHtml(state.admin?.email || "")}</div>
                 </div>
               </div>
@@ -2137,7 +2143,7 @@
             </nav>
           </div>
           <div class="user-sidebar-footer">
-            <span class="badge badge-admin" style="width: 100%; justify-content: center;">
+            <span class="badge badge-admin admin-badge-full">
               <span class="badge-dot"></span>${t("adminBadge")}
             </span>
           </div>
@@ -2148,7 +2154,7 @@
             <div class="user-topbar-left">
               <div class="global-search-wrapper">
                 <svg class="global-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                <input id="admin-search" class="global-search-input" placeholder="${t("adminSearchPlaceholder")}" />
+                <input id="admin-search" class="global-search-input" placeholder="${t("adminSearchPlaceholder")}" value="${escapeHtml(state.adminSearch)}" />
               </div>
             </div>
             <div class="user-topbar-right">
@@ -2158,13 +2164,13 @@
             </div>
           </header>
 
-          <div class="user-main-stack" style="padding: 20px;">
+          <div class="user-main-stack admin-main-stack">
             ${
               view === "site"
                 ? siteSettingsPanel()
                 : view === "audit"
                 ? `
-                  <div class="sidebar-section" style="margin:0;">
+                  <div class="sidebar-section admin-section-flat">
                     <div class="section-title">${t("adminAuditTitle")} (${state.adminAudit.length})</div>
                     <div class="admin-audit-list">
                       ${state.adminAudit.length ? state.adminAudit.map(adminAuditRow).join("") : `<div class="empty">${t("adminAuditTitle")}</div>`}
@@ -2172,13 +2178,13 @@
                   </div>
                 `
                 : `
-                  <div class="admin-workspace-grid" style="display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 18px;">
-                    <div class="sidebar-section" style="margin:0;">
-                      <div class="section-title">${t("adminUsersTitle")} (${state.adminUsers.length})</div>
+                  <div class="admin-workspace-grid">
+                    <div class="sidebar-section admin-section-flat">
+                      <div class="section-title">${t("adminUsersTitle")} (${visibleAdminUsers.length}/${state.adminUsers.length})</div>
                       <div class="admin-user-list">
                         ${
-                          state.adminUsers.length
-                            ? state.adminUsers
+                          visibleAdminUsers.length
+                            ? visibleAdminUsers
                                 .map(
                                   (user) => `
                                     <button class="admin-user-item ${state.adminSelectedUserEmail === user.email ? "active" : ""}" data-admin-user="${escapeHtml(user.email)}">
@@ -2188,7 +2194,7 @@
                                   `,
                                 )
                                 .join("")
-                            : `<div class="empty">${t("noUsers")}</div>`
+                            : `<div class="empty">${adminQuery ? t("noMatchingUsers") : t("noUsers")}</div>`
                         }
                       </div>
                     </div>
@@ -3370,7 +3376,8 @@
   });
 
   document.addEventListener("click", async (event) => {
-    const target = event.target.closest("button, [data-entry-id], [data-route]");
+    let target = event.target.closest("button, [data-entry-id], [data-route]");
+    if (!target && event.target.classList.contains("drawer-backdrop")) target = event.target;
     if (!target) return;
     if (target.classList.contains("eye-toggle-btn") || target.closest(".eye-toggle-btn")) {
       const btn = target.classList.contains("eye-toggle-btn") ? target : target.closest(".eye-toggle-btn");
@@ -3567,6 +3574,10 @@
       state.search = event.target.value;
       scheduleRender();
     }
+    if (event.target.id === "admin-search") {
+      state.adminSearch = event.target.value;
+      scheduleRender();
+    }
     if (event.target.closest("#entry-form") && event.target.name === "secret") {
       handleEntrySecretInput(event.target);
     }
@@ -3720,6 +3731,9 @@
 
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const particleCount = prefersReducedMotion ? 12 : Math.min(40, Math.floor(width / 28));
+    const rootStyles = getComputedStyle(document.documentElement);
+    const particlePrimary = rootStyles.getPropertyValue("--accent").trim() || "#059669";
+    const particleSecondary = rootStyles.getPropertyValue("--accent-cyan").trim() || "#0891b2";
 
     const particles = Array.from({ length: particleCount }, () => ({
       x: Math.random() * width,
@@ -3727,7 +3741,7 @@
       vx: (Math.random() - 0.5) * 0.45,
       vy: (Math.random() - 0.5) * 0.45,
       radius: Math.random() * 2 + 1.2,
-      color: Math.random() > 0.4 ? "rgba(5, 150, 105, " : "rgba(8, 145, 178, ",
+      color: Math.random() > 0.4 ? particlePrimary : particleSecondary,
       alpha: Math.random() * 0.35 + 0.15
     }));
 
@@ -3750,9 +3764,11 @@
             ctx.beginPath();
             ctx.moveTo(particles[i].x, particles[i].y);
             ctx.lineTo(particles[j].x, particles[j].y);
-            ctx.strokeStyle = `rgba(5, 150, 105, ${0.14 * (1 - dist / 125)})`;
+            ctx.strokeStyle = particlePrimary;
+            ctx.globalAlpha = 0.14 * (1 - dist / 125);
             ctx.lineWidth = 1;
             ctx.stroke();
+            ctx.globalAlpha = 1;
           }
         }
       }
@@ -3768,8 +3784,10 @@
 
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = p.color + p.alpha + ")";
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.alpha;
         ctx.fill();
+        ctx.globalAlpha = 1;
       }
 
       requestAnimationFrame(renderParticles);

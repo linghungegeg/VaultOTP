@@ -14,6 +14,7 @@
   --accent-hover: #047857;
   --accent-soft: rgba(16, 185, 129, 0.12);
   --accent-cyan: #0891b2;
+  --accent-cyan-hover: #0284c7;
   --danger: #dc2626;
   --danger-soft: rgba(239, 68, 68, 0.1);
   --code: #0f172a;
@@ -186,6 +187,14 @@ button:disabled {
   color: var(--text);
 }
 
+.brand-name-compact {
+  font-size: 19px;
+}
+
+.sidebar-brand-row {
+  margin-bottom: 20px;
+}
+
 .hero-subtitle {
   font-size: 13px;
   color: var(--muted);
@@ -253,6 +262,26 @@ button:disabled {
   border-radius: 10px;
   margin: 18px 0 20px 0;
   gap: 4px;
+}
+
+.auth-submit-actions {
+  margin-top: 18px;
+}
+
+.full-submit {
+  min-height: 42px;
+  width: 100%;
+}
+
+.admin-submit {
+  background: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+  margin-top: 14px;
+}
+
+.admin-submit:hover {
+  background: var(--accent-cyan-hover);
+  border-color: var(--accent-cyan-hover);
 }
 
 .segmented-tab {
@@ -1357,6 +1386,11 @@ textarea {
   width: 100%;
 }
 
+.drawer-close-button {
+  min-height: 32px;
+  padding: 0 8px;
+}
+
 .admin-layout {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
@@ -1374,6 +1408,25 @@ textarea {
   -webkit-backdrop-filter: blur(20px);
   border-right: 1px solid rgba(8, 145, 178, 0.25);
   padding: 20px 16px;
+}
+
+.admin-badge-full {
+  justify-content: center;
+  width: 100%;
+}
+
+.admin-main-stack {
+  padding: 20px;
+}
+
+.admin-section-flat {
+  margin: 0;
+}
+
+.admin-workspace-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
 }
 
 .sidebar-section {
