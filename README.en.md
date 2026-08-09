@@ -191,14 +191,8 @@ WantedBy=multi-user.target
 
 VaultOTP is open-sourced under the [Apache License 2.0](LICENSE).
 
-## Donation
+## Donation and Contact
 
-<p align="center">
-  <kbd><img src="img/zhanshang.png" alt="Donation QR code" width="260" /></kbd>
-</p>
-
-## Contact
-
-<p align="center">
-  <kbd><img src="img/wx.jpg" alt="WeChat contact QR code" width="260" /></kbd>
-</p>
+| Donation | Contact |
+| --- | --- |
+| <kbd><img src="img/zhanshang.png" alt="Donation QR code" width="260" /></kbd> | <kbd><img src="img/wx.jpg" alt="WeChat contact QR code" width="260" /></kbd> |

@@ -191,14 +191,8 @@ WantedBy=multi-user.target
 
 本项目基于 [Apache License 2.0](LICENSE) 开源。
 
-## 赞赏
+## 赞赏与联系方式
 
-<p align="center">
-  <kbd><img src="img/zhanshang.png" alt="赞赏码" width="260" /></kbd>
-</p>
-
-## 联系方式
-
-<p align="center">
-  <kbd><img src="img/wx.jpg" alt="微信联系方式" width="260" /></kbd>
-</p>
+| 赞赏 | 联系方式 |
+| --- | --- |
+| <kbd><img src="img/zhanshang.png" alt="赞赏码" width="260" /></kbd> | <kbd><img src="img/wx.jpg" alt="微信联系方式" width="260" /></kbd> |
