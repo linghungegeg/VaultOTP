@@ -1624,9 +1624,20 @@ textarea {
 }
 
 .admin-table-row > .badge {
-  justify-self: start;
+  justify-self: center;
   min-width: 64px;
   text-align: center;
+}
+
+.admin-audit-header {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+}
+
+.admin-audit-filter {
+  margin-bottom: 0;
 }
 
 .admin-row-actions {
@@ -2225,6 +2236,10 @@ textarea {
 
   .admin-table-row {
     align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-audit-header {
     grid-template-columns: 1fr;
   }
 

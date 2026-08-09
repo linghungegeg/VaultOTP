@@ -41,6 +41,8 @@
     adminView: "users",
     adminSearch: "",
     adminAudit: [],
+    adminAuditPage: 1,
+    adminAuditFilter: "all",
     adminReveals: {},
     editingId: null,
     groupFilter: "all",
@@ -514,6 +516,8 @@
     state.adminSelectedUserEmail = "";
     state.adminSearch = "";
     state.adminAudit = [];
+    state.adminAuditPage = 1;
+    state.adminAuditFilter = "all";
     state.adminReveals = {};
     state.adminMessage = "";
     state.adminUsersPage = 1;
@@ -2308,18 +2312,7 @@
           <div class="user-main-stack admin-main-stack">
             ${state.adminMessage ? `<div class="status-message">${escapeHtml(state.adminMessage)}</div>` : ""}
             ${
-              view === "site"
-                ? siteSettingsPanel()
-                : view === "audit"
-                ? `
-                  <div class="sidebar-section admin-section-flat">
-                    <div class="section-title">${t("adminAuditTitle")} (${state.adminAudit.length})</div>
-                    <div class="admin-audit-list">
-                      ${state.adminAudit.length ? state.adminAudit.map(adminAuditRow).join("") : `<div class="empty">${t("adminAuditTitle")}</div>`}
-                    </div>
-                  </div>
-                `
-                : adminUsersPanel(visibleAdminUsers, adminQuery)
+              view === "site" ? siteSettingsPanel() : view === "audit" ? adminAuditPanel() : adminUsersPanel(visibleAdminUsers, adminQuery)
             }
           </div>
         </main>
@@ -2685,6 +2678,50 @@
         <span>${escapeHtml(log.actorKind || "-")}</span>
         <span>${escapeHtml(log.action)}</span>
         <span>${escapeHtml(log.targetEntryId || log.target_entry_id || "-")}</span>
+      </div>
+    `;
+  }
+
+  function auditCategory(log) {
+    const action = String(log.action || "");
+    if (action.includes("login") || action.includes("logout")) return "auth";
+    if (action === "view_secret" || action === "view_otp") return "secret";
+    if (action.includes("entry") || action.includes("import") || action.includes("export")) return "entry";
+    if (action.includes("user") || action === "setup_admin") return "user";
+    return "system";
+  }
+
+  function adminAuditPanel() {
+    const pageSize = 50;
+    const filters = [
+      ["all", t("auditAll")],
+      ["auth", t("auditAuth")],
+      ["user", t("auditUsers")],
+      ["entry", t("auditEntries")],
+      ["secret", t("auditSecrets")],
+      ["system", t("auditSystem")],
+    ];
+    const logs =
+      state.adminAuditFilter === "all" ? state.adminAudit : state.adminAudit.filter((log) => auditCategory(log) === state.adminAuditFilter);
+    const totalPages = Math.max(1, Math.ceil(logs.length / pageSize));
+    state.adminAuditPage = Math.min(Math.max(1, state.adminAuditPage), totalPages);
+    const start = (state.adminAuditPage - 1) * pageSize;
+    const pageItems = logs.slice(start, start + pageSize);
+    return `
+      <div class="sidebar-section admin-section-flat">
+        <div class="admin-audit-header">
+          <div class="section-title">${t("adminAuditTitle")} (${logs.length}/${state.adminAudit.length})</div>
+          <label class="field admin-audit-filter">
+            <span>${t("auditFilter")}</span>
+            <select data-action="admin-audit-filter">
+              ${filters.map(([value, label]) => `<option value="${value}" ${state.adminAuditFilter === value ? "selected" : ""}>${label}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <div class="admin-audit-list">
+          ${pageItems.length ? pageItems.map(adminAuditRow).join("") : `<div class="empty">${t("adminAuditTitle")}</div>`}
+        </div>
+        ${pagination("admin-audit", state.adminAuditPage, totalPages)}
       </div>
     `;
   }
@@ -3635,6 +3672,7 @@
       if (target.dataset.pageScope === "activity") state.activityPage = nextPage;
       if (target.dataset.pageScope === "admin-users") state.adminUsersPage = nextPage;
       if (target.dataset.pageScope === "admin-entries") state.adminEntriesPage = nextPage;
+      if (target.dataset.pageScope === "admin-audit") state.adminAuditPage = nextPage;
       render();
       return;
     }
@@ -3856,6 +3894,12 @@
     }
     if (event.target.dataset.action === "batch-group") {
       state.batchGroupId = event.target.value;
+      return;
+    }
+    if (event.target.dataset.action === "admin-audit-filter") {
+      state.adminAuditFilter = event.target.value || "all";
+      state.adminAuditPage = 1;
+      render();
       return;
     }
     if (event.target.dataset.entrySelect) {

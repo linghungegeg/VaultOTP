@@ -2015,7 +2015,7 @@ async function handleApi(request, response, pathname, requestUrl) {
       jsonResponse(response, 404, { error: "not_found" });
       return;
     }
-    const entries = store.entries.filter((item) => item.userId === user.id).map(publicEntry);
+    const entries = store.entries.filter((item) => item.userId === user.id && !item.deletedAt).map(publicEntry);
     const groups = store.groups.filter((item) => item.userId === user.id).map(publicGroup);
     jsonResponse(response, 200, { user: publicUser(user), entries, groups, activity: userAuditLogs(store, user.id) });
     return;

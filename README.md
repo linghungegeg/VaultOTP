@@ -18,6 +18,8 @@
 
 VaultOTP 是一个面向个人和小团队的 2FA 验证码管理工具。它提供用户端、管理后台、公开工具页、浏览器扩展和 PWA 离线能力，适合自部署在自己的服务器上，用一个 Web 服务集中管理 TOTP/HOTP 条目、导入导出备份、通过 PAT 调用 API。
 
+官网地址：[https://www.2fakey.icu/](https://www.2fakey.icu/)
+
 ## 我们的优势
 
 - **轻量自部署**：核心是一个 Node.js Web 服务，不依赖复杂微服务。
