@@ -12,6 +12,10 @@
   <img alt="i18n" src="https://img.shields.io/badge/i18n-中文%20%2F%20English-7c3aed" />
 </p>
 
+<p>
+  简体中文 | <a href="README.en.md">English</a>
+</p>
+
 </div>
 
 ## 项目简介
