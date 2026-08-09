@@ -328,20 +328,20 @@ button:disabled {
 .eye-toggle-btn {
   position: absolute;
   right: 8px;
-  background: transparent !important;
-  border: none !important;
-  padding: 4px !important;
+  background: transparent;
+  border-color: transparent;
+  padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--muted);
   border-radius: 6px;
-  min-height: auto !important;
+  min-height: auto;
 }
 
 .eye-toggle-btn:hover {
   color: var(--text);
-  background: rgba(0, 0, 0, 0.04) !important;
+  background: rgb(15 23 42 / 4%);
 }
 
 .eye-toggle-btn svg {
@@ -575,10 +575,10 @@ textarea {
 
 .global-search-input {
   width: 100%;
-  padding-left: 36px !important;
-  padding-right: 64px !important;
-  background: rgba(255, 255, 255, 0.85) !important;
-  border-radius: 8px !important;
+  padding-left: 36px;
+  padding-right: 64px;
+  background: var(--panel-solid);
+  border-radius: 8px;
 }
 
 .kbd-badge {
@@ -887,6 +887,15 @@ textarea {
   padding: 18px;
 }
 
+.status-message {
+  border: 1px solid var(--badge-privacy-border);
+  border-radius: 8px;
+  background: var(--badge-privacy-bg);
+  color: var(--badge-privacy-text);
+  font-weight: 600;
+  padding: 10px 12px;
+}
+
 .user-toolbar,
 .user-form-section,
 .user-utility-grid,
@@ -1025,8 +1034,21 @@ textarea {
   border-radius: 8px;
   display: grid;
   gap: 12px;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 0.6fr) minmax(0, 1fr);
   padding: 12px;
+}
+
+.batch-select {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  min-width: 0;
+}
+
+.batch-select .checkbox-field {
+  margin: 0;
+  min-width: 0;
 }
 
 .batch-actions {
@@ -1249,6 +1271,8 @@ textarea {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
+  display: grid;
+  gap: 12px;
   margin-top: 16px;
   min-width: 0;
   padding: 14px;
@@ -1256,6 +1280,10 @@ textarea {
 
 .settings-section-stack .sidebar-section {
   margin-top: 0;
+}
+
+.user-settings-panel .section-title {
+  margin-bottom: 0;
 }
 
 .user-utility-grid {
@@ -1290,6 +1318,7 @@ textarea {
 .sidebar-actions {
   align-items: stretch;
   display: grid;
+  gap: 8px;
   grid-template-columns: 1fr 1fr;
   margin-top: 12px;
 }
@@ -1392,6 +1421,7 @@ textarea {
 }
 
 .admin-layout {
+  background: #f7fafc;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
   min-height: 100vh;
@@ -1399,6 +1429,7 @@ textarea {
 
 .admin-sidebar,
 .admin-main {
+  background: #f7fafc;
   min-width: 0;
 }
 
@@ -1416,7 +1447,7 @@ textarea {
 }
 
 .admin-main-stack {
-  padding: 20px;
+  padding: 18px;
 }
 
 .admin-section-flat {
@@ -1475,7 +1506,7 @@ textarea {
 .admin-summary,
 .admin-entry-row {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .admin-summary {
@@ -1512,10 +1543,10 @@ textarea {
 }
 
 .admin-entry-row {
-  background: var(--panel);
+  background: var(--panel-solid);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 14px;
+  padding: 12px;
 }
 
 .admin-entry-top,
@@ -1533,6 +1564,21 @@ textarea {
   flex-wrap: wrap;
 }
 
+.admin-detail-modal,
+.admin-detail-modal button,
+.admin-detail-modal .muted,
+.admin-detail-modal .admin-value {
+  font-size: 14px;
+}
+
+.admin-detail-modal .section-title {
+  font-size: 13px;
+}
+
+.admin-entry-top strong {
+  font-size: 16px;
+}
+
 .admin-entry-values {
   border-top: 1px solid var(--line);
   display: grid;
@@ -1543,12 +1589,75 @@ textarea {
 
 .admin-value {
   color: var(--code);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: inherit;
   margin-top: 4px;
   overflow-wrap: anywhere;
 }
 
+.admin-table {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-table-row {
+  align-items: center;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1.1fr) 110px 90px 170px minmax(230px, auto);
+  padding: 10px 12px;
+}
+
+.admin-table-head {
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-table-row > strong,
+.admin-table-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-table-row > .badge {
+  justify-self: start;
+  min-width: 64px;
+  text-align: center;
+}
+
+.admin-row-actions {
+  justify-content: flex-end;
+}
+
+.admin-detail-modal {
+  background: var(--panel-solid);
+  display: grid;
+  gap: 12px;
+  max-height: min(78vh, 760px);
+  max-width: 880px;
+  overflow: auto;
+  width: min(880px, calc(100vw - 32px));
+}
+
+.pagination {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 10px;
+}
+
+.pagination span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .audit-row {
+  background: var(--panel-solid);
   border: 1px solid var(--line);
   border-radius: 6px;
   display: grid;
@@ -1559,10 +1668,33 @@ textarea {
 }
 
 .pat-row {
-  grid-template-columns: minmax(120px, 1fr) auto minmax(160px, 1fr) minmax(140px, 1fr);
+  align-items: start;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, auto);
+  padding: 12px;
 }
 
-.pat-row button {
+.pat-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.pat-meta strong {
+  flex: 1 1 160px;
+  overflow-wrap: anywhere;
+}
+
+.pat-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(82px, 1fr));
+  min-width: 0;
+}
+
+.pat-actions button {
   width: 100%;
 }
 
@@ -1628,9 +1760,9 @@ textarea {
 
 .public-page {
   display: grid;
-  gap: 28px;
+  gap: 24px;
   margin: 0 auto;
-  max-width: 1040px;
+  max-width: 1180px;
   padding: 24px;
 }
 
@@ -1960,7 +2092,7 @@ textarea {
 
 .modal-backdrop {
   align-items: center;
-  background: rgb(15 23 42 / 45%);
+  background: rgb(15 23 42 / 34%);
   display: flex;
   inset: 0;
   justify-content: center;
@@ -1977,6 +2109,11 @@ textarea {
   overflow: auto;
   padding: 18px;
   width: min(860px, 100%);
+}
+
+.modal.admin-detail-modal {
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgb(15 23 42 / 18%);
 }
 
 .import-text {
@@ -2080,6 +2217,20 @@ textarea {
 
   .pat-row {
     grid-template-columns: 1fr;
+  }
+
+  .pat-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-table-row {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-row-actions,
+  .pagination {
+    justify-content: flex-start;
   }
 
   .api-endpoint-row {

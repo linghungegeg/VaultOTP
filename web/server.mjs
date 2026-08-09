@@ -4,12 +4,25 @@ import { extname, join, normalize, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { webcrypto, createHash, createHmac } from "node:crypto";
 import { runInNewContext } from "node:vm";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+let DatabaseSync = null;
+try {
+  ({ DatabaseSync } = await import("node:sqlite"));
+} catch {
+  DatabaseSync = null;
+}
 
 const { subtle } = webcrypto;
 const getRandomValues = webcrypto.getRandomValues.bind(webcrypto);
+const execFileAsync = promisify(execFile);
 const root = dirname(fileURLToPath(import.meta.url));
 const i18nPath = normalize(join(root, "..", "extension", "i18n.js"));
 const storePath = normalize(process.env.VAULTOTP_STORE_PATH || join(root, "..", "vaultotp-store.json"));
+const databasePath = normalize(process.env.VAULTOTP_DB_PATH || storePath.replace(/\.json$/i, ".sqlite"));
+const databaseEnabled = process.env.VAULTOTP_DISABLE_DB !== "1";
+const sqliteCli = process.env.VAULTOTP_SQLITE_BIN || "sqlite3";
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
 const tokenTtlMs = 1000 * 60 * 60 * 24 * 30;
@@ -23,6 +36,10 @@ const contentTypes = {
 
 let storeCache = null;
 let i18nCache = null;
+let saveQueue = Promise.resolve();
+let storeDatabase = null;
+let sqliteCliAvailable = null;
+let sqliteCliReady = false;
 
 function jsonResponse(response, status, payload) {
   response.writeHead(status, {
@@ -110,25 +127,124 @@ function defaultStore() {
   };
 }
 
-function defaultSiteSettings() {
+function defaultSiteSettings(siteName = "VaultOTP") {
+  const name = String(siteName || "VaultOTP").trim() || "VaultOTP";
   return {
-    siteName: "VaultOTP",
-    seoTitle: "VaultOTP",
-    seoKeywords: "VaultOTP, 2FA, TOTP, HOTP",
-    seoDescription: "VaultOTP saves and manages 2FA verification codes.",
+    siteName: name,
+    seoTitle: name,
+    seoKeywords: `${name}, 2FA, TOTP, HOTP`,
+    seoDescription: `${name} saves and manages 2FA verification codes.`,
     logo: "",
-    ogTitle: "VaultOTP",
-    ogDescription: "Save and manage 2FA verification codes.",
+    ogTitle: name,
+    ogDescription: `${name} saves and manages 2FA verification codes.`,
     allowPublicIndexing: true,
   };
 }
 
 function siteSettings(store) {
-  return { ...defaultSiteSettings(), ...(store.siteSettings || {}) };
+  const siteName = store.siteSettings?.siteName || "VaultOTP";
+  return { ...defaultSiteSettings(siteName), ...(store.siteSettings || {}) };
+}
+
+async function openStoreDatabase() {
+  if (!databaseEnabled || !DatabaseSync) return null;
+  await mkdir(dirname(databasePath), { recursive: true });
+  if (!storeDatabase) {
+    storeDatabase = new DatabaseSync(databasePath);
+    storeDatabase.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS vault_store (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  }
+  return storeDatabase;
+}
+
+async function canUseSqliteCli() {
+  if (!databaseEnabled || DatabaseSync) return false;
+  if (sqliteCliAvailable != null) return sqliteCliAvailable;
+  try {
+    await execFileAsync(sqliteCli, ["--version"], { timeout: 5000 });
+    sqliteCliAvailable = true;
+  } catch {
+    sqliteCliAvailable = false;
+  }
+  return sqliteCliAvailable;
+}
+
+async function openCliStoreDatabase() {
+  if (!(await canUseSqliteCli())) return false;
+  await mkdir(dirname(databasePath), { recursive: true });
+  if (!sqliteCliReady) {
+    await execFileAsync(
+      sqliteCli,
+      [
+        databasePath,
+        `PRAGMA journal_mode = WAL;
+CREATE TABLE IF NOT EXISTS vault_store (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);`,
+      ],
+      { timeout: 10000 },
+    );
+    sqliteCliReady = true;
+  }
+  return true;
+}
+
+async function loadDatabaseStore() {
+  const database = await openStoreDatabase();
+  if (database) {
+    const row = database.prepare("SELECT value FROM vault_store WHERE key = ?").get("store");
+    return row?.value ? JSON.parse(row.value) : null;
+  }
+  if (!(await openCliStoreDatabase())) return null;
+  const { stdout } = await execFileAsync(sqliteCli, [databasePath, "SELECT hex(value) FROM vault_store WHERE key = 'store';"], {
+    encoding: "utf8",
+    timeout: 10000,
+  });
+  const hex = stdout.trim();
+  return hex ? JSON.parse(Buffer.from(hex, "hex").toString("utf8")) : null;
+}
+
+async function saveDatabaseStore(store) {
+  const database = await openStoreDatabase();
+  if (database) {
+    database
+      .prepare(
+        "INSERT INTO vault_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+      )
+      .run("store", JSON.stringify(store), now());
+    return true;
+  }
+  if (!(await openCliStoreDatabase())) return false;
+  const jsonHex = Buffer.from(JSON.stringify(store), "utf8").toString("hex");
+  const updatedAt = now().replaceAll("'", "''");
+  await execFileAsync(
+    sqliteCli,
+    [
+      databasePath,
+      `INSERT INTO vault_store (key, value, updated_at)
+VALUES ('store', CAST(X'${jsonHex}' AS TEXT), '${updatedAt}')
+ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;`,
+    ],
+    { timeout: 10000 },
+  );
+  return true;
 }
 
 async function loadStore() {
   if (storeCache) {
+    return storeCache;
+  }
+  const databaseStore = await loadDatabaseStore();
+  if (databaseStore) {
+    storeCache = normalizeStore(databaseStore);
     return storeCache;
   }
   try {
@@ -138,6 +254,7 @@ async function loadStore() {
     await saveStore(storeCache);
   }
   storeCache = normalizeStore(storeCache);
+  await saveStore(storeCache);
   return storeCache;
 }
 
@@ -158,11 +275,18 @@ function normalizeStore(store) {
 }
 
 async function saveStore(store) {
-  await mkdir(dirname(storePath), { recursive: true });
-  const tmpPath = `${storePath}.${process.pid}.tmp`;
-  await writeFile(tmpPath, JSON.stringify(store, null, 2), "utf8");
-  await rename(tmpPath, storePath);
-  storeCache = store;
+  const write = async () => {
+    if (!(await saveDatabaseStore(store))) {
+      await mkdir(dirname(storePath), { recursive: true });
+      const suffix = `${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
+      const tmpPath = `${storePath}.${suffix}.tmp`;
+      await writeFile(tmpPath, JSON.stringify(store, null, 2), "utf8");
+      await rename(tmpPath, storePath);
+    }
+    storeCache = store;
+  };
+  saveQueue = saveQueue.catch(() => undefined).then(write);
+  await saveQueue;
 }
 
 async function loadI18n() {
@@ -1334,7 +1458,8 @@ async function handleApi(request, response, pathname, requestUrl) {
 
   if (pathname === "/api/bootstrap" && request.method === "GET") {
     const pair = await ensureCrypto(store);
-    jsonResponse(response, 200, { hasAdmin: Boolean(store.admin), secretPublicKey: pair.publicKeyJwk, serverTime: now() });
+    const settings = siteSettings(store);
+    jsonResponse(response, 200, { hasAdmin: Boolean(store.admin), secretPublicKey: pair.publicKeyJwk, serverTime: now(), siteSettings: { siteName: settings.siteName } });
     return;
   }
 
@@ -1874,7 +1999,11 @@ async function handleApi(request, response, pathname, requestUrl) {
 
   if (pathname === "/api/admin/users" && request.method === "GET") {
     if (!requireAdmin(ctx, response)) return;
-    jsonResponse(response, 200, { items: store.users.map(publicUser) });
+    const items = store.users.map((user) => ({
+      ...publicUser(user),
+      entryCount: store.entries.filter((entry) => entry.userId === user.id && !entry.deletedAt).length,
+    }));
+    jsonResponse(response, 200, { items });
     return;
   }
 
@@ -1988,15 +2117,17 @@ async function handleApi(request, response, pathname, requestUrl) {
   if (pathname === "/api/admin/site-settings" && request.method === "PATCH") {
     if (!requireAdmin(ctx, response)) return;
     const body = await readJsonBody(request);
+    const siteName = String(body.siteName || "VaultOTP").trim() || "VaultOTP";
+    const defaults = defaultSiteSettings(siteName);
     store.siteSettings = {
-      ...siteSettings(store),
-      siteName: String(body.siteName || "VaultOTP").trim(),
-      seoTitle: String(body.seoTitle || "").trim(),
-      seoKeywords: String(body.seoKeywords || "").trim(),
-      seoDescription: String(body.seoDescription || "").trim(),
+      ...defaults,
+      siteName,
+      seoTitle: String(body.seoTitle || defaults.seoTitle).trim(),
+      seoKeywords: String(body.seoKeywords || defaults.seoKeywords).trim(),
+      seoDescription: String(body.seoDescription || defaults.seoDescription).trim(),
       logo: String(body.logo || "").trim(),
-      ogTitle: String(body.ogTitle || "").trim(),
-      ogDescription: String(body.ogDescription || "").trim(),
+      ogTitle: String(body.ogTitle || defaults.ogTitle).trim(),
+      ogDescription: String(body.ogDescription || defaults.ogDescription).trim(),
       allowPublicIndexing: body.allowPublicIndexing !== false,
     };
     await saveStore(store);

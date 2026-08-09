@@ -10,6 +10,8 @@
   const hideCodesStorageKey = "vaultotp.hideCodesByDefault";
   const sortModeStorageKey = "vaultotp.sortMode";
   const densityStorageKey = "vaultotp.displayDensity";
+  const userTokenStorageKey = "vaultotp.userToken";
+  const adminTokenStorageKey = "vaultotp.adminToken";
   const sortModes = new Set(["recent", "name", "group", "created"]);
   const densityModes = new Set(["comfortable", "compact"]);
 
@@ -33,6 +35,9 @@
     adminDetail: null,
     siteSettings: null,
     adminSelectedUserEmail: "",
+    adminUsersPage: 1,
+    adminEntriesPage: 1,
+    adminDetailOpen: false,
     adminView: "users",
     adminSearch: "",
     adminAudit: [],
@@ -59,6 +64,7 @@
     importOpen: false,
     settingsOpen: false,
     settingsSection: "overview",
+    activityPage: 1,
     settingsMessage: "",
     scannerOpen: false,
     importText: "",
@@ -104,6 +110,23 @@
     state.locale = currentLocale;
     if (state.settingsOpen) state.settingsMessage = t("settingsSaved");
     render();
+  }
+
+  function readSessionToken(key) {
+    try {
+      return sessionStorage.getItem(key) || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function writeSessionToken(key, token) {
+    try {
+      if (token) sessionStorage.setItem(key, token);
+      else sessionStorage.removeItem(key);
+    } catch {
+      // Session restore is a convenience only; auth still works without storage.
+    }
   }
 
   function normalizeEmail(value) {
@@ -156,6 +179,70 @@
     const data = await api("/api/bootstrap", {}, "");
     state.hasAdmin = Boolean(data.hasAdmin);
     state.secretPublicKey = data.secretPublicKey;
+    state.siteSettings = data.siteSettings || null;
+    syncDocumentTitle();
+  }
+
+  async function restoreSession() {
+    syncRouteFromLocation();
+    const wantsAdmin = state.route === "admin";
+    const adminToken = readSessionToken(adminTokenStorageKey);
+    const userToken = readSessionToken(userTokenStorageKey);
+    if (wantsAdmin && adminToken) {
+      try {
+        const session = await api("/api/me", {}, adminToken);
+        if (session.role !== "admin") throw new Error("not_admin");
+        state.adminToken = adminToken;
+        state.admin = session.admin;
+        await loadAdminData();
+        return;
+      } catch {
+        writeSessionToken(adminTokenStorageKey, "");
+        state.adminToken = "";
+        state.admin = null;
+      }
+    }
+    if (!wantsAdmin && userToken) {
+      try {
+        const session = await api("/api/me", {}, userToken);
+        if (session.role !== "user") throw new Error("not_user");
+        state.userToken = userToken;
+        state.user = session.user;
+        await loadUserData();
+      } catch {
+        writeSessionToken(userTokenStorageKey, "");
+        state.userToken = "";
+        state.user = null;
+      }
+    }
+  }
+
+  function configuredSiteName() {
+    return String(state.siteSettings?.siteName || "").trim() || t("authTitle");
+  }
+
+  function adminSiteTitle() {
+    return t("adminConsoleTitleWithName", { siteName: configuredSiteName() });
+  }
+
+  function formatBeijingTime(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat("zh-CN", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+
+  function syncDocumentTitle() {
+    document.title = state.route === "admin" ? adminSiteTitle() : configuredSiteName();
   }
 
   async function encryptSecret(secret) {
@@ -332,7 +419,28 @@
   function syncRouteFromLocation() {
     const hashRoute = window.location.hash.replace(/^#\/?/, "");
     state.route = window.location.pathname.startsWith("/admin") || hashRoute === "admin" ? "admin" : "app";
-    document.title = state.route === "admin" ? t("adminTitle") : t("authTitle");
+    if (state.route === "app" && hashRoute.startsWith("settings/")) {
+      state.settingsOpen = true;
+      state.settingsSection = hashRoute.slice("settings/".length) || "overview";
+      state.lifecycleView = "active";
+    } else if (state.route === "app" && hashRoute === "trash") {
+      state.settingsOpen = false;
+      state.lifecycleView = "trash";
+      state.groupFilter = "all";
+    } else if (state.route === "app" && hashRoute === "active") {
+      state.settingsOpen = false;
+      state.lifecycleView = "active";
+      state.groupFilter = "all";
+    }
+    syncDocumentTitle();
+  }
+
+  function setAppHash(value) {
+    if (window.location.protocol === "file:") {
+      window.location.hash = value;
+      return;
+    }
+    history.replaceState({}, "", `${window.location.pathname}#/${value}`);
   }
 
   function goToRoute(route) {
@@ -354,6 +462,7 @@
   }
 
   function clearUserSession() {
+    writeSessionToken(userTokenStorageKey, "");
     state.userToken = "";
     state.user = null;
     state.sessionInfo = null;
@@ -396,6 +505,7 @@
   }
 
   function clearAdminSession() {
+    writeSessionToken(adminTokenStorageKey, "");
     state.adminToken = "";
     state.admin = null;
     state.adminUsers = [];
@@ -406,6 +516,9 @@
     state.adminAudit = [];
     state.adminReveals = {};
     state.adminMessage = "";
+    state.adminUsersPage = 1;
+    state.adminEntriesPage = 1;
+    state.adminDetailOpen = false;
   }
 
   function scheduleRender() {
@@ -1235,16 +1348,19 @@
   }
 
   async function loadUserData() {
-    const [session, groups, entries, pats, activity] = await Promise.all([
+    const [session, groups, entries] = await Promise.all([
       api("/api/me"),
       api("/api/groups"),
       api("/api/entries?includeDeleted=1"),
-      api("/api/pats"),
-      api("/api/activity"),
     ]);
     state.sessionInfo = session;
+    state.user = session.user || state.user;
     state.groups = groups.items;
     state.entries = entries.items;
+    const [pats, activity] = await Promise.all([
+      api("/api/pats").catch(() => ({ items: state.pats })),
+      api("/api/activity").catch(() => ({ items: state.activityLogs })),
+    ]);
     state.pats = pats.items;
     state.activityLogs = activity.items || [];
     const entryIds = new Set(state.entries.map((entry) => entry.id));
@@ -1268,12 +1384,13 @@
     state.adminUsers = users.items;
     state.adminAudit = audit.items;
     state.siteSettings = settings.settings;
-    const selected = state.adminUsers.find((item) => item.email === state.adminSelectedUserEmail) || state.adminUsers[0] || null;
-    if (selected) {
+    const selected = state.adminUsers.find((item) => item.email === state.adminSelectedUserEmail) || null;
+    if (selected && state.adminDetailOpen) {
       await loadAdminUser(selected.email, false);
     } else {
       state.adminSelectedUserEmail = "";
       state.adminDetail = null;
+      state.adminDetailOpen = false;
     }
   }
 
@@ -1459,7 +1576,7 @@
           <div class="brand-header-row">
             <div class="brand-logo-container">
               ${renderBrandLogoSvg(false)}
-              <div class="brand-name">${t("authTitle")}</div>
+              <div class="brand-name">${escapeHtml(configuredSiteName())}</div>
             </div>
             ${languageSwitch()}
           </div>
@@ -1536,7 +1653,7 @@
             <div class="brand-logo-container">
               ${renderBrandLogoSvg(true)}
               <div>
-                <div class="brand-name brand-name-compact">${t("adminConsoleTitle")}</div>
+                <div class="brand-name brand-name-compact">${escapeHtml(adminSiteTitle())}</div>
                 <div class="hero-subtitle">${setupMode ? t("setupAdminHint") : t("adminConsoleSubtitle")}</div>
               </div>
             </div>
@@ -1637,7 +1754,7 @@
             <div class="brand-header-row sidebar-brand-row">
               <div class="brand-logo-container">
                 ${renderBrandLogoSvg(false)}
-                <div class="brand-name">${t("authTitle")}</div>
+                <div class="brand-name">${escapeHtml(configuredSiteName())}</div>
               </div>
             </div>
             <nav class="user-nav-tree">
@@ -1693,6 +1810,7 @@
               state.settingsOpen
                 ? settingsPanel()
                 : `
+                  ${state.message ? `<div class="status-message">${escapeHtml(state.message)}</div>` : ""}
                   ${listToolbar(entries.length)}
                   ${entries.length || state.selectedEntryIds.size ? batchToolbar(entries) : ""}
                   <section class="entry-list">
@@ -1756,11 +1874,13 @@
     const selectedCount = entries.filter((entry) => state.selectedEntryIds.has(entry.id)).length;
     return `
       <section class="batch-toolbar">
-        <label class="checkbox-field">
-          <input type="checkbox" data-action="select-visible" ${entries.length && selectedCount === entries.length ? "checked" : ""} ${entries.length ? "" : "disabled"} />
-          ${t("selectVisible")}
-        </label>
-        <span class="muted">${t("selectedCount", { count: selectedCount })}</span>
+        <div class="batch-select">
+          <label class="checkbox-field">
+            <input type="checkbox" data-action="select-visible" ${entries.length && selectedCount === entries.length ? "checked" : ""} ${entries.length ? "" : "disabled"} />
+            <span>${t("selectVisible")}</span>
+          </label>
+          <span class="muted">${t("selectedCount", { count: selectedCount })}</span>
+        </div>
         ${
           state.lifecycleView === "trash"
             ? `
@@ -1869,7 +1989,7 @@
   function auditLogRow(log) {
     return `
       <div class="audit-row activity-row">
-        <span>${escapeHtml(log.createdAt || "")}</span>
+        <span>${escapeHtml(formatBeijingTime(log.createdAt))}</span>
         <span>${escapeHtml(log.actorKind || "-")}</span>
         <span>${escapeHtml(log.action || "-")}</span>
         <span>${escapeHtml(log.targetEntryId || "-")}</span>
@@ -1878,13 +1998,30 @@
   }
 
   function activitySettingsPanel() {
+    const pageSize = 20;
+    const totalPages = Math.max(1, Math.ceil(state.activityLogs.length / pageSize));
+    state.activityPage = Math.min(Math.max(1, state.activityPage), totalPages);
+    const start = (state.activityPage - 1) * pageSize;
+    const pageItems = state.activityLogs.slice(start, start + pageSize);
     return `
       <div class="sidebar-section">
         <div class="section-title">${t("activityTitle")}</div>
         <div class="muted">${t("activityHint")}</div>
         <div class="admin-audit-list">
-          ${state.activityLogs.length ? state.activityLogs.slice(0, 30).map(auditLogRow).join("") : `<div class="empty">${t("noActivity")}</div>`}
+          ${pageItems.length ? pageItems.map(auditLogRow).join("") : `<div class="empty">${t("noActivity")}</div>`}
         </div>
+        ${pagination("activity", state.activityPage, totalPages)}
+      </div>
+    `;
+  }
+
+  function pagination(scope, page, totalPages) {
+    if (totalPages <= 1) return "";
+    return `
+      <div class="pagination">
+        <button class="ghost" type="button" data-page-scope="${scope}" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>${t("prevPage")}</button>
+        <span>${t("pageInfo", { page, total: totalPages })}</span>
+        <button class="ghost" type="button" data-page-scope="${scope}" data-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}>${t("nextPage")}</button>
       </div>
     `;
   }
@@ -1956,7 +2093,7 @@
         <div class="session-list">
           <div><span class="muted">${t("email")}</span><strong>${escapeHtml(user.email || "")}</strong></div>
           <div><span class="muted">${t("authType")}</span><strong>${escapeHtml(session.authType || "session")}</strong></div>
-          <div><span class="muted">${t("lastLogin")}</span><strong>${escapeHtml(user.lastLoginAt || "-")}</strong></div>
+          <div><span class="muted">${t("lastLogin")}</span><strong>${escapeHtml(formatBeijingTime(user.lastLoginAt))}</strong></div>
           <div><span class="muted">${t("patCount")}</span><strong>${escapeHtml(session.patCount ?? state.pats.length)}</strong></div>
         </div>
         <div class="inline-actions settings-actions">
@@ -2035,14 +2172,18 @@
                   .map(
                     (pat) => `
                       <div class="audit-row pat-row">
-                        <span>${escapeHtml(pat.name)}</span>
-                        <span class="badge ${pat.status === "active" ? "" : "disabled-badge"}">${t(pat.status || "active")}</span>
-                        <span>${t("createdAt")}: ${escapeHtml(pat.createdAt || "-")}</span>
-                        <span>${t("lastUsed")}: ${escapeHtml(pat.lastUsedAt || "-")}</span>
-                        <button class="ghost" data-action="rename-pat" data-id="${pat.id}" ${pat.status === "active" ? "" : "disabled"}>${t("renamePat")}</button>
-                        <button class="ghost" data-action="rotate-pat" data-id="${pat.id}" ${pat.status === "active" ? "" : "disabled"}>${t("rotatePat")}</button>
-                        <button class="danger" data-action="disable-pat" data-id="${pat.id}" ${pat.status === "active" ? "" : "disabled"}>${t("disablePat")}</button>
-                        <button class="danger" data-action="delete-pat" data-id="${pat.id}" ${pat.status === "deleted" ? "disabled" : ""}>${t("deletePat")}</button>
+                        <div class="pat-meta">
+                          <strong>${escapeHtml(pat.name)}</strong>
+                          <span class="badge ${pat.status === "active" ? "" : "disabled-badge"}">${t(pat.status || "active")}</span>
+                          <span>${t("createdAt")}: ${escapeHtml(formatBeijingTime(pat.createdAt))}</span>
+                          <span>${t("lastUsed")}: ${escapeHtml(formatBeijingTime(pat.lastUsedAt))}</span>
+                        </div>
+                        <div class="pat-actions">
+                          <button class="ghost" data-action="rename-pat" data-id="${pat.id}" ${pat.status === "active" ? "" : "disabled"}>${t("renamePat")}</button>
+                          <button class="ghost" data-action="rotate-pat" data-id="${pat.id}" ${pat.status === "active" ? "" : "disabled"}>${t("rotatePat")}</button>
+                          <button class="danger" data-action="disable-pat" data-id="${pat.id}" ${pat.status === "active" ? "" : "disabled"}>${t("disablePat")}</button>
+                          <button class="danger" data-action="delete-pat" data-id="${pat.id}" ${pat.status === "deleted" ? "disabled" : ""}>${t("deletePat")}</button>
+                        </div>
                       </div>
                     `,
                   )
@@ -2109,7 +2250,7 @@
               <div class="brand-logo-container">
                 ${renderBrandLogoSvg(true)}
                 <div>
-                  <div class="brand-name brand-name-compact">${t("adminConsoleTitle")}</div>
+                  <div class="brand-name brand-name-compact">${escapeHtml(adminSiteTitle())}</div>
                   <div class="hero-subtitle">${escapeHtml(state.admin?.email || "")}</div>
                 </div>
               </div>
@@ -2165,6 +2306,7 @@
           </header>
 
           <div class="user-main-stack admin-main-stack">
+            ${state.adminMessage ? `<div class="status-message">${escapeHtml(state.adminMessage)}</div>` : ""}
             ${
               view === "site"
                 ? siteSettingsPanel()
@@ -2177,32 +2319,7 @@
                     </div>
                   </div>
                 `
-                : `
-                  <div class="admin-workspace-grid">
-                    <div class="sidebar-section admin-section-flat">
-                      <div class="section-title">${t("adminUsersTitle")} (${visibleAdminUsers.length}/${state.adminUsers.length})</div>
-                      <div class="admin-user-list">
-                        ${
-                          visibleAdminUsers.length
-                            ? visibleAdminUsers
-                                .map(
-                                  (user) => `
-                                    <button class="admin-user-item ${state.adminSelectedUserEmail === user.email ? "active" : ""}" data-admin-user="${escapeHtml(user.email)}">
-                                      <span>${escapeHtml(user.email)}</span>
-                                      <span class="badge ${user.status === "disabled" ? "disabled-badge" : ""}">${escapeHtml(t(user.status || "active"))}</span>
-                                    </button>
-                                  `,
-                                )
-                                .join("")
-                            : `<div class="empty">${adminQuery ? t("noMatchingUsers") : t("noUsers")}</div>`
-                        }
-                      </div>
-                    </div>
-                    <div class="admin-detail-stack">
-                      ${selected && state.adminDetail ? adminDetailPanel() : `<div class="empty">${t("adminNoSelection")}</div>`}
-                    </div>
-                  </div>
-                `
+                : adminUsersPanel(visibleAdminUsers, adminQuery)
             }
           </div>
         </main>
@@ -2272,7 +2389,17 @@
 
   function settingsNavButton(id, label) {
     const isActive = state.settingsOpen && state.settingsSection === id;
-    const settingsSvg = `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
+    const icons = {
+      account: `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>`,
+      display: `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg>`,
+      language: `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h7"/><path d="M9 3v2c0 4-2 7-5 9"/><path d="M5 9c1 2 3 4 6 5"/><path d="M13 21l4-9 4 9"/><path d="M15 17h4"/></svg>`,
+      transfer: `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>`,
+      organize: `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18"/><path d="M3 12h18"/><path d="M3 17h18"/><path d="M7 7v10"/></svg>`,
+      activity: `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>`,
+      pat: `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 7a5 5 0 1 0-4 8"/><path d="M14 14l7 7"/><path d="M18 18l3-3"/></svg>`,
+      pwa: `<svg class="nav-tree-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>`,
+    };
+    const settingsSvg = icons[id] || icons.display;
     return `
       <button class="nav-tree-item ${isActive ? "active" : ""}" type="button" data-settings-section="${id}">
         <span class="nav-tree-item-left">
@@ -2554,10 +2681,52 @@
   function adminAuditRow(log) {
     return `
       <div class="audit-row activity-row">
-        <span>${escapeHtml(log.createdAt || log.created_at || "")}</span>
+        <span>${escapeHtml(formatBeijingTime(log.createdAt || log.created_at))}</span>
         <span>${escapeHtml(log.actorKind || "-")}</span>
         <span>${escapeHtml(log.action)}</span>
         <span>${escapeHtml(log.targetEntryId || log.target_entry_id || "-")}</span>
+      </div>
+    `;
+  }
+
+  function adminUsersPanel(users, query) {
+    const pageSize = 20;
+    const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+    state.adminUsersPage = Math.min(Math.max(1, state.adminUsersPage), totalPages);
+    const start = (state.adminUsersPage - 1) * pageSize;
+    const pageItems = users.slice(start, start + pageSize);
+    return `
+      <section class="sidebar-section admin-section-flat">
+        <div class="section-title">${t("adminUsersTitle")} (${users.length}/${state.adminUsers.length})</div>
+        <div class="admin-table">
+          <div class="admin-table-row admin-table-head">
+            <span>${t("email")}</span>
+            <span>${t("accountStatus")}</span>
+            <span>${t("savedItems")}</span>
+            <span>${t("lastLogin")}</span>
+            <span>${t("actions")}</span>
+          </div>
+          ${pageItems.length ? pageItems.map(adminUserRow).join("") : `<div class="empty">${query ? t("noMatchingUsers") : t("noUsers")}</div>`}
+        </div>
+        ${pagination("admin-users", state.adminUsersPage, totalPages)}
+      </section>
+      ${state.adminDetailOpen && state.adminDetail ? adminDetailPanel() : ""}
+    `;
+  }
+
+  function adminUserRow(user) {
+    const email = escapeHtml(user.email);
+    return `
+      <div class="admin-table-row">
+        <strong>${email}</strong>
+        <span class="badge ${user.status === "disabled" ? "disabled-badge" : ""}">${escapeHtml(t(user.status || "active"))}</span>
+        <span>${escapeHtml(String(user.entryCount ?? "-"))}</span>
+        <span>${escapeHtml(formatBeijingTime(user.lastLoginAt))}</span>
+        <span class="inline-actions admin-row-actions">
+          <button class="ghost" type="button" data-action="admin-view-user-detail" data-id="${email}">${t("viewDetails")}</button>
+          <button class="danger" type="button" data-action="admin-disable-user" data-id="${email}" ${user.status === "disabled" ? "disabled" : ""}>${t("adminDisable")}</button>
+          <button class="danger" type="button" data-action="admin-delete-user" data-id="${email}">${t("adminDelete")}</button>
+        </span>
       </div>
     `;
   }
@@ -2566,30 +2735,32 @@
     const detail = state.adminDetail;
     const user = detail.user;
     const entries = detail.entries || [];
-    const activity = detail.activity || [];
+    const pageSize = 20;
+    const entryTotalPages = Math.max(1, Math.ceil(entries.length / pageSize));
+    state.adminEntriesPage = Math.min(Math.max(1, state.adminEntriesPage), entryTotalPages);
+    const entryStart = (state.adminEntriesPage - 1) * pageSize;
+    const pageEntries = entries.slice(entryStart, entryStart + pageSize);
     return `
-      <section class="admin-detail">
-        <div class="admin-summary">
-          <div>
-            <div class="section-title">${t("savedItems")}</div>
-            <div class="muted">${escapeHtml(user.email)}</div>
+      <div class="modal-backdrop">
+        <section class="modal admin-detail-modal">
+          <div class="panel-title">
+            <div>
+              <h2>${t("viewDetails")}</h2>
+              <div class="muted">${escapeHtml(user.email)}</div>
+            </div>
+            <button class="ghost" type="button" data-action="close-admin-detail">${t("close")}</button>
           </div>
-          <div class="inline-actions">
-            <button class="danger" type="button" data-action="admin-disable-user" data-id="${escapeHtml(user.email)}">${t("adminDisable")}</button>
-            <button class="danger" type="button" data-action="admin-delete-user" data-id="${escapeHtml(user.email)}">${t("adminDelete")}</button>
+          <div class="detail-grid">
+            <div class="detail-item"><span class="muted">${t("accountStatus")}</span><strong>${escapeHtml(t(user.status || "active"))}</strong></div>
+            <div class="detail-item"><span class="muted">${t("createdAt")}</span><strong>${escapeHtml(formatBeijingTime(user.createdAt))}</strong></div>
+            <div class="detail-item"><span class="muted">${t("lastLogin")}</span><strong>${escapeHtml(formatBeijingTime(user.lastLoginAt))}</strong></div>
+            <div class="detail-item"><span class="muted">${t("savedItems")}</span><strong>${entries.length}</strong></div>
           </div>
-        </div>
-        <div class="detail-grid">
-          <div class="detail-item"><span class="muted">${t("accountStatus")}</span><strong>${escapeHtml(t(user.status || "active"))}</strong></div>
-          <div class="detail-item"><span class="muted">${t("createdAt")}</span><strong>${escapeHtml(user.createdAt || "-")}</strong></div>
-          <div class="detail-item"><span class="muted">${t("lastLogin")}</span><strong>${escapeHtml(user.lastLoginAt || "-")}</strong></div>
-          <div class="detail-item"><span class="muted">${t("savedItems")}</span><strong>${entries.length}</strong></div>
-        </div>
-        <div class="section-title">${t("savedItems")}</div>
-        ${entries.length ? `<div class="admin-entry-list">${entries.map((entry) => adminEntryRow(user.email, entry)).join("")}</div>` : `<div class="empty">${t("noEntries")}</div>`}
-        <div class="section-title">${t("activityTitle")}</div>
-        ${activity.length ? `<div class="admin-audit-list">${activity.slice(0, 20).map(auditLogRow).join("")}</div>` : `<div class="empty">${t("noActivity")}</div>`}
-      </section>
+          <div class="section-title">${t("savedItems")}</div>
+          ${pageEntries.length ? `<div class="admin-entry-list">${pageEntries.map((entry) => adminEntryRow(user.email, entry)).join("")}</div>` : `<div class="empty">${t("noEntries")}</div>`}
+          ${pagination("admin-entries", state.adminEntriesPage, entryTotalPages)}
+        </section>
+      </div>
     `;
   }
 
@@ -2634,6 +2805,7 @@
       );
       state.userToken = payload.token;
       state.user = payload.user;
+      writeSessionToken(userTokenStorageKey, payload.token);
       state.message = "";
       state.locked = false;
       state.lockMessage = "";
@@ -2656,6 +2828,7 @@
       );
       state.userToken = payload.token;
       state.user = payload.user;
+      writeSessionToken(userTokenStorageKey, payload.token);
       state.locked = false;
       state.lockMessage = "";
       state.message = "";
@@ -2708,6 +2881,7 @@
       );
       state.adminToken = payload.token;
       state.admin = payload.admin;
+      writeSessionToken(adminTokenStorageKey, payload.token);
       state.hasAdmin = true;
       state.adminMessage = "";
       await loadAdminData();
@@ -2806,7 +2980,7 @@
         }
       }
       state.editingId = null;
-      state.message = "";
+      state.message = t("entrySaved");
       await loadUserData();
       render();
     } catch {
@@ -2944,12 +3118,22 @@
     }
   }
 
+  function isImageImportFile(file) {
+    if (file.type.startsWith("image/")) return true;
+    return /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name || "");
+  }
+
   async function readImportFile(file) {
+    const isImage = isImageImportFile(file);
     try {
-      applyImportPayload(file.type.startsWith("image/") ? await readQrImportFile(file) : await file.text(), false);
+      applyImportPayload(isImage ? await readQrImportFile(file) : await file.text(), false);
+      if (isImage && state.importItems.length) {
+        const count = state.importItems.filter((item) => item.status === "valid").length;
+        state.importMessage = t("importQrReady").replace("{count}", count);
+      }
     } catch (error) {
       state.importItems = [];
-      state.importMessage = file.type.startsWith("image/") && error.message === "barcode_detector_unavailable" ? t("scanUnsupported") : t("importFileUnsupported");
+      state.importMessage = isImage && error.message === "barcode_detector_unavailable" ? t("scanUnsupported") : t("importFileUnsupported");
     }
     render();
   }
@@ -3018,6 +3202,7 @@
         // Fall back to jsQR for browsers or images that BarcodeDetector cannot read.
       }
     }
+    if (!getJsQrDecoder()) throw new Error("barcode_detector_unavailable");
     return readQrWithJsQr(source);
   }
 
@@ -3265,6 +3450,8 @@
   async function disableAdminUser(email) {
     if (!confirm(t("adminDisableUserConfirm"))) return;
     await api(`/api/admin/users/${encodeURIComponent(email)}/disable`, { method: "POST" }, state.adminToken);
+    state.adminDetailOpen = false;
+    state.adminDetail = null;
     await loadAdminData();
     render();
   }
@@ -3272,6 +3459,8 @@
   async function deleteAdminUser(email) {
     if (!confirm(t("adminDeleteUserConfirm"))) return;
     await api(`/api/admin/users/${encodeURIComponent(email)}`, { method: "DELETE" }, state.adminToken);
+    state.adminDetailOpen = false;
+    state.adminDetail = null;
     await loadAdminData();
     render();
   }
@@ -3422,6 +3611,8 @@
     }
     if (target.dataset.adminView) {
       state.adminView = target.dataset.adminView;
+      state.adminDetailOpen = false;
+      state.adminDetail = null;
       render();
       return;
     }
@@ -3432,8 +3623,18 @@
     if (target.dataset.settingsSection) {
       state.settingsOpen = true;
       state.settingsSection = target.dataset.settingsSection;
+      state.activityPage = 1;
       state.settingsMessage = "";
       state.editingId = null;
+      setAppHash(`settings/${state.settingsSection}`);
+      render();
+      return;
+    }
+    if (target.dataset.pageScope) {
+      const nextPage = Math.max(1, Number(target.dataset.page || 1));
+      if (target.dataset.pageScope === "activity") state.activityPage = nextPage;
+      if (target.dataset.pageScope === "admin-users") state.adminUsersPage = nextPage;
+      if (target.dataset.pageScope === "admin-entries") state.adminEntriesPage = nextPage;
       render();
       return;
     }
@@ -3448,6 +3649,7 @@
     if (action === "new-entry") {
       state.editingId = "";
       state.settingsOpen = false;
+      setAppHash("active");
       render();
     }
     if (action === "open-settings") {
@@ -3466,6 +3668,7 @@
     if (action === "settings-overview") {
       state.settingsSection = "overview";
       state.settingsMessage = "";
+      setAppHash("settings/overview");
       render();
     }
     if (action === "lock-now") lockUserApp("lockedHint");
@@ -3480,6 +3683,7 @@
       state.groupFilter = "all";
       state.selectedEntryIds = new Set();
       state.settingsOpen = false;
+      setAppHash("active");
       render();
     }
     if (action === "show-trash") {
@@ -3487,6 +3691,18 @@
       state.groupFilter = "all";
       state.selectedEntryIds = new Set();
       state.settingsOpen = false;
+      setAppHash("trash");
+      render();
+    }
+    if (action === "admin-view-user-detail") {
+      state.adminDetailOpen = true;
+      state.adminEntriesPage = 1;
+      await loadAdminUser(id);
+    }
+    if (action === "close-admin-detail") {
+      state.adminDetailOpen = false;
+      state.adminDetail = null;
+      state.adminEntriesPage = 1;
       render();
     }
     if (action === "delete-entry") await deleteEntry(id);
@@ -3797,6 +4013,7 @@
   }
 
   bootstrap()
+    .then(restoreSession)
     .catch(async () => {
       try {
         const snapshot = await loadActiveOfflineSnapshot();
