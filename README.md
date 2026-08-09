@@ -16,38 +16,60 @@
 
 ## 项目简介
 
-VaultOTP 是一个面向个人和小团队的 2FA 验证码管理工具。它提供用户端、管理后台、公开工具页、浏览器扩展和 PWA 离线能力，适合自部署在自己的服务器上，用一个 Web 服务集中管理 TOTP/HOTP 条目、导入导出备份、通过 PAT 调用 API。
+VaultOTP 是一个面向个人和团队的 2FA 验证码管理工具。它提供用户端、管理后台、公开工具页、浏览器扩展和 PWA 离线能力，适合自部署在自己的服务器上，用一个 Web 服务集中管理 TOTP/HOTP 条目、导入导出备份、通过 PAT 调用 API。
 
 官网地址：[https://www.2fakey.icu/](https://www.2fakey.icu/)
 
-## 我们的优势
+## 项目特点
 
 - **轻量自部署**：核心是一个 Node.js Web 服务，不依赖复杂微服务。
 - **SQLite 持久化**：默认把用户、admin、分组、条目、PAT、审计记录保存到 SQLite。
 - **完整用户端**：支持分组、搜索、置顶、回收站、批量整理、二维码导入、备份导出。
 - **管理后台**：支持用户管理、站点配置、审计记录、用户详情查看。
 - **安全边界清晰**：用户侧和 admin 侧分离；admin 查看 Secret / OTP 会进入审计链路。
+- **算法覆盖完整**：支持 TOTP / HOTP，支持 SHA-1、SHA-256、SHA-512，支持 6 / 8 位验证码、TOTP 周期和 HOTP counter。
+- **导入方式丰富**：支持 otpauth URI、Google Authenticator migration URI、二维码图片、摄像头扫码，以及常见可读导出格式。
 - **API / PAT**：支持为当前用户创建 Personal Access Token，通过接口读取条目和验证码。
 - **PWA / 离线体验**：可缓存应用外壳，弱网或离线时保留可用入口。
 - **中英文界面**：内置中文和 English 文案，适合公开部署。
 
+## 支持的算法
+
+| 类型 | 支持项 |
+| --- | --- |
+| 验证码类型 | TOTP、HOTP |
+| HMAC 算法 | SHA-1、SHA-256、SHA-512 |
+| 验证码位数 | 6 位、8 位 |
+| TOTP 参数 | 自定义周期，默认 30 秒 |
+| HOTP 参数 | counter 计数器 |
+
+## 支持的导入
+
+| 导入来源 | 支持情况 |
+| --- | --- |
+| otpauth URI | 支持粘贴文本、批量文本、页面提取 |
+| Google Authenticator | 支持 `otpauth-migration://` migration URI |
+| 二维码图片 | 支持上传图片识别 |
+| 摄像头扫码 | 支持浏览器摄像头实时扫码 |
+| Aegis | 支持可读 JSON 导出 |
+| 2FAS | 支持可读导出 |
+| 2FAuth | 支持可读导出 |
+| Bitwarden | 支持可读 JSON 导出 |
+| LastPass | 支持 CSV 导出 |
+| Proton Pass | 支持可读 JSON / CSV 导出 |
+| Raivo | 支持可读导出 |
+| andOTP | 支持可读导出 |
+| FreeOTP | 支持可读导出 |
+
 ## 功能截图
 
-<p align="center">
-  <kbd><img src="img/Snipaste_2026-08-10_02-04-00.png" alt="VaultOTP 首页" width="820" /></kbd>
-</p>
+| 首页 | 用户端 |
+| --- | --- |
+| <kbd><img src="img/Snipaste_2026-08-10_02-04-00.png" alt="VaultOTP 首页" width="420" /></kbd> | <kbd><img src="img/Snipaste_2026-08-10_02-04-21.png" alt="VaultOTP 用户端" width="420" /></kbd> |
 
-<p align="center">
-  <kbd><img src="img/Snipaste_2026-08-10_02-04-21.png" alt="VaultOTP 用户端" width="820" /></kbd>
-</p>
-
-<p align="center">
-  <kbd><img src="img/Snipaste_2026-08-10_02-04-35.png" alt="VaultOTP 添加条目" width="820" /></kbd>
-</p>
-
-<p align="center">
-  <kbd><img src="img/Snipaste_2026-08-10_02-07-20.png" alt="VaultOTP 管理后台" width="820" /></kbd>
-</p>
+| 添加条目 | 管理后台 |
+| --- | --- |
+| <kbd><img src="img/Snipaste_2026-08-10_02-04-35.png" alt="VaultOTP 添加条目" width="420" /></kbd> | <kbd><img src="img/Snipaste_2026-08-10_02-07-20.png" alt="VaultOTP 管理后台" width="420" /></kbd> |
 
 ## 架构
 
